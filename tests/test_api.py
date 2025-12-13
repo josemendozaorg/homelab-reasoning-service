@@ -45,3 +45,27 @@ def test_reason_endpoint_validation(client):
         "max_iterations": 100  # exceeds limit
     })
     assert response.status_code == 422
+
+def test_test_inference_endpoint(client):
+    """Test inference endpoint returns valid structure."""
+    # Note: This will fail without mocking or a real Ollama instance if we don't mock the client.
+    # For now, let's assume we want to verify the route exists and handles the request structure 
+    # even if it fails with 500 downstream (or we can use unittest.mock if needed).
+    # Since we don't have mocking setup easily here, and 500 is expected if no Ollama, 
+    # lets check that.
+    
+    # Actually, let's mock it to be green.
+    from unittest.mock import AsyncMock, patch
+    
+    with patch("src.api.routes.OllamaClient") as mock_client:
+        mock_instance = mock_client.return_value
+        mock_instance.__aenter__.return_value = mock_instance
+        mock_instance.generate = AsyncMock(return_value="Hello there!")
+        
+        response = client.post("/v1/test-inference")
+        
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["response"] == "Hello there!"
+    assert "duration_ms" in data

@@ -1,12 +1,13 @@
 """API route definitions for the reasoning service."""
 import logging
+import time
 from fastapi import APIRouter, HTTPException
 
 from src.config import settings
 from src.llm import OllamaClient
 from src.reasoning import create_reasoning_graph
 from src.reasoning.state import create_initial_state
-from .models import ReasoningRequest, ReasoningResponse, HealthResponse
+from .models import ReasoningRequest, ReasoningResponse, HealthResponse, TestInferenceResponse
 
 logger = logging.getLogger(__name__)
 
@@ -90,3 +91,32 @@ async def health_check() -> HealthResponse:
         model=settings.ollama_model,
         ollama_connected=ollama_connected
     )
+
+@router.post("/v1/test-inference", response_model=TestInferenceResponse)
+async def test_inference() -> TestInferenceResponse:
+    """Run a fast inference check (max 10 tokens)."""
+    start_time = time.time()
+    
+    try:
+        async with OllamaClient() as client:
+            response = await client.generate(
+                prompt="Say hello!",
+                max_tokens=10,
+                temperature=0.7
+            )
+            
+        duration = (time.time() - start_time) * 1000
+        
+        return TestInferenceResponse(
+            status="ok",
+            response=response.strip(),
+            duration_ms=duration,
+            model=settings.ollama_model
+        )
+            
+    except Exception as e:
+        logger.error(f"Inference check failed: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Inference check failed: {str(e)}"
+        )

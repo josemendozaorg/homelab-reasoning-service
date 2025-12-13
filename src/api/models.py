@@ -39,6 +39,17 @@ class ReasoningResponse(BaseModel):
     )
 
 
+class TestInferenceResponse(BaseModel):
+    """Response model for the fast inference test."""
+    
+    status: str = "ok"
+    response: str
+    duration_ms: float
+    model: str = Field(
+        description="The LLM model used for inference"
+    )
+
+
 class HealthResponse(BaseModel):
     """Response model for health check endpoint."""
 
