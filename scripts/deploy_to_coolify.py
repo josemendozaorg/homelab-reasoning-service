@@ -10,7 +10,7 @@ PROJECT_UUID = "occs0c800c04wckokg8880ss"
 ENV_NAME = "production"
 SOURCE_ID = 2
 REPO_NAME = "josemendozaorg/homelab-reasoning-service"
-BRANCH = "main"
+BRANCH = "feature/langgraph-reasoning"
 APP_NAME = "homelab-reasoning-service" # For display/check
 DESTINATION_UUID = "b0kc0gkk0wwggwo80wkcooog" # Server UUID
 
@@ -123,15 +123,16 @@ def deploy(app_uuid):
     log(f"Triggering deployment for {app_uuid}...")
     
     # Primary method: Restart (deploys latest code)
-    url = f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/restart"
-    log(f"Trying {url}...")
-    resp = requests.post(url, headers=headers)
-    if resp.status_code == 200:
-        data = resp.json()
-        log(f"Deployment/Restart started: {data}")
-        return data.get("uuid")
-        
-    log(f"Restart failed: {resp.status_code}. Trying direct deploy...")
+    # Primary method: Deploy (ensures git pull)
+    # url = f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/restart"
+    # log(f"Trying {url}...")
+    # resp = requests.post(url, headers=headers)
+    # if resp.status_code == 200:
+    #     data = resp.json()
+    #     log(f"Deployment/Restart started: {data}")
+    #     return data.get("uuid")
+    
+    # log(f"Restart failed: {resp.status_code}. Trying direct deploy...")
     
     # Fallback: Query param deploy
     url = f"{COOLIFY_URL}/api/v1/deploy"
@@ -175,6 +176,12 @@ def main():
     log("Clearing ports mappings...")
     payload = {
         "ports_mappings": None
+    }
+    # Clear ports mappings (FQDN update was rejected by API)
+    log("Updating config (Branch & Ports)...")
+    payload = {
+        "ports_mappings": None,
+        "git_branch": BRANCH
     }
     resp = requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json=payload, headers=headers)
     log(f"Config update response: {resp.status_code}")
