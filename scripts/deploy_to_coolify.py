@@ -172,12 +172,7 @@ def main():
         app_uuid = app_data.get("uuid")
         log(f"App created with UUID: {app_uuid}")
     
-    # Clear ports mappings (FQDN update was rejected by API)
-    log("Clearing ports mappings...")
-    payload = {
-        "ports_mappings": None
-    }
-    # Clear ports mappings (FQDN update was rejected by API)
+    # Update config (Branch & Ports)
     log("Updating config (Branch & Ports)...")
     payload = {
         "ports_mappings": None,
@@ -188,16 +183,53 @@ def main():
     if resp.status_code != 200:
         log(f"Update failed: {resp.text}")
     
-    # Verify update
+    # Get details to find FQDN
     check_resp = requests.get(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", headers=headers)
+    app_details = {}
     if check_resp.status_code == 200:
         app_details = check_resp.json()
         log(f"Verified FQDN: {app_details.get('fqdn')}")
         log(f"Verified Ports: {app_details.get('ports_mappings')}")
 
-    
-    fqdn = "http://reasoning.coolify-homelab.josemendoza.dev"
-    log(f"Application URL should be: {fqdn} (Please configure in UI if missing)")
+    # Configure Traefik Labels (Enable HTTP/Flexible SSL)
+    fqdn_full = app_details.get('fqdn', '')
+    if fqdn_full:
+        hostname = fqdn_full.replace("http://", "").replace("https://", "").strip("/")
+        log(f"Configuring Traefik labels for host: {hostname}")
+        
+        # Labels without redirect-to-https to allow flexible SSL
+        # Note: We must encode to base64
+        labels = f"""traefik.enable=true
+traefik.http.middlewares.gzip.compress=true
+traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+traefik.http.routers.http-0-{app_uuid}.entryPoints=http
+traefik.http.routers.http-0-{app_uuid}.middlewares=gzip
+traefik.http.routers.http-0-{app_uuid}.rule=Host(`{hostname}`) && PathPrefix(`/`)
+traefik.http.routers.http-0-{app_uuid}.service=http-0-{app_uuid}
+traefik.http.routers.https-0-{app_uuid}.entryPoints=https
+traefik.http.routers.https-0-{app_uuid}.rule=Host(`{hostname}`) && PathPrefix(`/`)
+traefik.http.routers.https-0-{app_uuid}.service=http-0-{app_uuid}
+traefik.http.routers.https-0-{app_uuid}.tls=true
+traefik.http.routers.https-0-{app_uuid}.tls.certresolver=letsencrypt
+traefik.http.services.http-0-{app_uuid}.loadbalancer.server.port=8080
+traefik.docker.network=coolify
+caddy_0.encode=zstd gzip
+caddy_0.handle_path.0_reverse_proxy={{upstreams 8080}}
+caddy_0.handle_path=/*
+caddy_0.header=-Server
+caddy_0.try_files={{path}} /index.html /index.php
+caddy_0={fqdn_full}
+caddy_ingress_network=coolify"""
+
+        encoded_labels = base64.b64encode(labels.encode('utf-8')).decode('utf-8')
+        
+        log("Updating custom labels...")
+        label_payload = {
+            "custom_labels": encoded_labels
+        }
+        requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json=label_payload, headers=headers)
+        
+    log(f"Application URL should be: {fqdn_full}")
 
     # Set Envs
     for k, v in ENVS.items():
