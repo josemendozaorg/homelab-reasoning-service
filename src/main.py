@@ -3,6 +3,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from src.config import settings
 from src.api import router
@@ -50,16 +52,13 @@ app = FastAPI(
 # Include API routes
 app.include_router(router)
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 @app.get("/")
 async def root():
-    """Root endpoint with service information."""
-    return {
-        "service": "LangGraph Reasoning Service",
-        "version": "1.0.0",
-        "model": settings.ollama_model,
-        "docs": "/docs"
-    }
+    """Serve the UI."""
+    return FileResponse('src/static/index.html')
 
 
 if __name__ == "__main__":
