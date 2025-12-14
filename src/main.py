@@ -45,7 +45,7 @@ app = FastAPI(
     Designed for complex reasoning tasks that benefit from
     deliberative, iterative problem-solving.
     """,
-    version="1.0.0",
+    version=settings.app_version,
     lifespan=lifespan
 )
 
@@ -54,6 +54,15 @@ app.include_router(router)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
+
+@app.get("/api/info")
+async def info():
+    """Return service information."""
+    return {
+        "service": "LangGraph Reasoning Service",
+        "version": settings.app_version,
+        "model": settings.ollama_model
+    }
 
 @app.get("/")
 async def root():

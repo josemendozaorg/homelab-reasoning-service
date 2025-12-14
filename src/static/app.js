@@ -6,6 +6,20 @@ const thinking = document.getElementById('thinking');
 const thinkingContent = document.getElementById('thinkingContent');
 const finalAnswer = document.getElementById('finalAnswer');
 const showTraceCheckbox = document.getElementById('showTrace');
+const appVersion = document.getElementById('appVersion');
+
+// Initialize
+(async () => {
+    try {
+        const res = await fetch('/api/info');
+        const data = await res.json();
+        if (data.version) {
+            appVersion.textContent = `v${data.version}`;
+        }
+    } catch (e) {
+        console.error("Failed to fetch version:", e);
+    }
+})();
 
 // Auto-activate button
 queryInput.addEventListener('input', () => {

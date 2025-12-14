@@ -59,6 +59,14 @@ header {
     border: 1px solid var(--border);
 }
 
+.version-tag {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-left: 1rem;
+    opacity: 0.6;
+    font-family: monospace;
+}
+
 .dot {
     width: 6px;
     height: 6px;
@@ -112,7 +120,7 @@ main {
 
 .thinking-header {
     padding: 0.75rem 1rem;
-    background: rgba(0,0,0,0.2);
+    background: rgba(0, 0, 0, 0.2);
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -154,10 +162,13 @@ main {
 
 .final-answer {
     line-height: 1.7;
-    margin-bottom: 4rem; /* Space for input */
+    margin-bottom: 4rem;
+    /* Space for input */
 }
 
-.final-answer h1, .final-answer h2, .final-answer h3 {
+.final-answer h1,
+.final-answer h2,
+.final-answer h3 {
     margin-top: 1.5rem;
     margin-bottom: 0.75rem;
 }
@@ -256,14 +267,16 @@ button:hover:not(:disabled) {
 .spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid rgba(255,255,255,0.1);
+    border: 2px solid rgba(255, 255, 255, 0.1);
     border-left-color: var(--accent);
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Scrollbar */
@@ -271,13 +284,16 @@ button:hover:not(:disabled) {
     width: 8px;
     height: 8px;
 }
+
 ::-webkit-scrollbar-track {
     background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
