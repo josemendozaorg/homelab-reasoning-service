@@ -31,44 +31,79 @@ queryForm.addEventListener('submit', async (e) => {
     }
 
     try {
-        const response = await fetch('/v1/reason', {
+        // Use text/event-stream for streaming
+        const response = await fetch('/v1/reason/stream', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                query: query,
-                max_iterations: 5
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: query, max_iterations: 5 })
         });
 
-        const data = await response.json();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        if (response.ok) {
-            // Render Reasoning Trace
-            // If data.reasoning_trace is a list of steps, join them
-            // If it's empty, use a placeholder
-            if (data.reasoning_trace && data.reasoning_trace.length > 0) {
-                // Format trace nicely
-                const traceHtml = data.reasoning_trace.map((step, index) =>
-                    `[Step ${index + 1}]\n${JSON.stringify(step, null, 2)}`
-                ).join('\n\n');
-                thinkingContent.textContent = traceHtml;
-            } else {
-                thinkingContent.textContent = "Reasoning complete (No granular trace returned).";
+        // State for parsing
+        let isInThinkTag = false;
+        let reasoningAccumulator = '';
+        let answerAccumulator = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const text = decoder.decode(value);
+            buffer += text;
+
+            // SSE lines handling
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const dataStr = line.slice(6);
+                    if (dataStr === 'Reasoning complete') break;
+
+                    try {
+                        const data = JSON.parse(dataStr);
+                        const token = data.token;
+
+                        // Simple state machine for parsing <think> tags on the fly
+                        if (token.includes('<think>')) {
+                            isInThinkTag = true;
+                            // Clean token
+                            const parts = token.split('<think>');
+                            reasoningAccumulator += parts[1] || '';
+                        } else if (token.includes('</think>')) {
+                            const parts = token.split('</think>');
+                            reasoningAccumulator += parts[0] || '';
+                            answerAccumulator += parts[1] || '';
+                            isInThinkTag = false;
+                        } else {
+                            if (isInThinkTag) {
+                                reasoningAccumulator += token;
+                            } else {
+                                answerAccumulator += token;
+                            }
+                        }
+
+                        // Update UI
+                        requestAnimationFrame(() => {
+                            if (reasoningAccumulator) thinkingContent.textContent = reasoningAccumulator;
+                            // Use marked.parse for markdown, but throttle or sanitize if heavy? 
+                            // For token stream, simple innerHTML update with marked might flicker unclosed tags.
+                            // For now, simpler:
+                            finalAnswer.innerHTML = marked.parse(answerAccumulator);
+                            finalAnswer.classList.remove('hidden');
+                        });
+
+                    } catch (e) {
+                        console.error("Error parsing SSE data:", e);
+                    }
+                }
             }
-
-            // Render Final Answer
-            finalAnswer.innerHTML = marked.parse(data.final_answer || "**No answer returned.**");
-            finalAnswer.classList.remove('hidden');
-
-            // Stop spinner by removing the class (optional, or just logic)
-            document.querySelector('.spinner').style.display = 'none';
-
-        } else {
-            finalAnswer.innerHTML = `<div style="color: #ef4444">Error: ${data.detail || 'Unknown error'}</div>`;
-            finalAnswer.classList.remove('hidden');
         }
+
+        document.querySelector('.spinner').style.display = 'none';
 
     } catch (error) {
         finalAnswer.innerHTML = `<div style="color: #ef4444">Network Error: ${error.message}</div>`;

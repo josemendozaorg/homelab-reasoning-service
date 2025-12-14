@@ -3,7 +3,9 @@ import re
 import logging
 from typing import Any
 
-from src.llm import OllamaClient
+from langchain_community.chat_models import ChatOllama
+from langchain_core.messages import SystemMessage, HumanMessage
+
 from src.config import settings
 from .state import ReasoningState
 from .prompts import REASON_SYSTEM_PROMPT, CRITIQUE_SYSTEM_PROMPT, REFINE_SYSTEM_PROMPT
@@ -55,20 +57,28 @@ Previous answer: {state["current_answer"]}
 Critique: {state["critique"]}
 
 Please provide an improved answer addressing the critique."""
-        system = REFINE_SYSTEM_PROMPT
+        system_content = REFINE_SYSTEM_PROMPT
     else:
         # Initial reasoning
         prompt = state["query"]
-        system = REASON_SYSTEM_PROMPT
+        system_content = REASON_SYSTEM_PROMPT
 
-    async with OllamaClient() as client:
-        response = await client.generate(
-            prompt=prompt,
-            system=system,
-            temperature=settings.temperature
-        )
+    # Use LangChain ChatOllama for standard integration (supports streaming)
+    llm = ChatOllama(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_model,
+        temperature=settings.temperature
+    )
 
-    reasoning, answer = parse_reasoning_response(response)
+    messages = [
+        SystemMessage(content=system_content),
+        HumanMessage(content=prompt)
+    ]
+
+    response_msg = await llm.ainvoke(messages)
+    response_text = response_msg.content
+
+    reasoning, answer = parse_reasoning_response(response_text)
 
     new_trace = state["reasoning_trace"].copy()
     if reasoning:
@@ -105,12 +115,19 @@ Current answer: {state["current_answer"]}
 Evaluate this answer critically. If it's fully satisfactory, respond with APPROVED.
 Otherwise, provide specific feedback on what needs improvement."""
 
-    async with OllamaClient() as client:
-        critique = await client.generate(
-            prompt=prompt,
-            system=CRITIQUE_SYSTEM_PROMPT,
-            temperature=0.3  # Lower temperature for consistent evaluation
-        )
+    llm = ChatOllama(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_model,
+        temperature=0.3
+    )
+    
+    messages = [
+        SystemMessage(content=CRITIQUE_SYSTEM_PROMPT),
+        HumanMessage(content=prompt)
+    ]
+
+    response_msg = await llm.ainvoke(messages)
+    critique = response_msg.content
 
     logger.info(f"Critique node: {'APPROVED' if 'APPROVED' in critique.upper() else 'needs improvement'}")
 
