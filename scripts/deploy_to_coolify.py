@@ -2,19 +2,26 @@
 import requests
 import time
 import sys
+import argparse
+import os
+import base64
 
 # Configuration
 COOLIFY_URL = "http://192.168.0.160:8000"
-API_TOKEN = "3|lgnzzflq0JOXkm04qrJRiW2aoiiNwTli3NcskP3K0da2412c"
+# NOTE: API_TOKEN must be set in environment variables (CI/CD)
+API_TOKEN = os.environ.get("COOLIFY_API_TOKEN")
+
+if not API_TOKEN:
+    print("Error: COOLIFY_API_TOKEN environment variable not set.")
+    sys.exit(1)
+
 PROJECT_UUID = "occs0c800c04wckokg8880ss"
-ENV_NAME = "production"
 SOURCE_ID = 2
 REPO_NAME = "josemendozaorg/homelab-reasoning-service"
-BRANCH = "feature/langgraph-reasoning"
-APP_NAME = "homelab-reasoning-service" # For display/check
 DESTINATION_UUID = "b0kc0gkk0wwggwo80wkcooog" # Server UUID
 
-ENVS = {
+# Base Envs
+BASE_ENVS = {
     "REASONING_OLLAMA_BASE_URL": "http://192.168.0.140:11434",
     "REASONING_OLLAMA_MODEL": "deepseek-r1:14b",
     "REASONING_MAX_REASONING_ITERATIONS": "5",
@@ -38,34 +45,71 @@ def check_response(resp):
         sys.exit(1)
     return resp.json()
 
-def find_existing_app():
-    log("Checking for existing application...")
+def get_app_name(branch, env):
+    # Sanitize branch name for URL/Coolify naming
+    safe_branch = branch.lower().replace("/", "-").replace("_", "-")
+    if env == "production":
+        return "homelab-reasoning" # Production name
+    elif env == "development":
+        return "homelab-reasoning-dev"
+    else:
+        return f"homelab-reasoning-{safe_branch}"
+
+def get_domain(branch, env):
+    safe_branch = branch.lower().replace("/", "-").replace("_", "-")
+    if env == "production":
+        return "https://reasoning.josemendoza.dev"
+    elif env == "development":
+        return "https://reasoning-dev.josemendoza.dev"
+    else:
+        # Preview
+        return f"https://reasoning-{safe_branch}.josemendoza.dev"
+
+def find_existing_app(app_name):
+    log(f"Checking for existing application '{app_name}'...")
     resp = requests.get(f"{COOLIFY_URL}/api/v1/applications", headers=headers)
     apps = check_response(resp)
     
     for app in apps:
-        # Check against repo name or custom name if possible (though name usually includes random suffix)
-        # Check loose match because one is full URL
-        if REPO_NAME in app.get("git_repository", ""):
+        # Check matching name 
+        if app.get("name") == app_name:
             return app
+        # Fallback: check if the derived domain matches matches 
+        # (This is harder reliably without query, so relying on name/repo combo if possible)
+        # But Coolify adds random suffixes often.
+        # Let's try to match by git_branch AND repo if name match fails
+        pass 
+        
     return None
 
-def create_app():
-    log(f"Creating application for {REPO_NAME}...")
-    # Try /api/v1/applications/public for public repos
+# NOTE: Since Coolify might not allow searching by name efficiently, we might need to rely on creating and handling 
+# the "already exists" error or iterating all. iterating all is safer.
+def find_app_by_branch_and_repo(branch):
+    resp = requests.get(f"{COOLIFY_URL}/api/v1/applications", headers=headers)
+    apps = check_response(resp)
+    for app in apps:
+        # Ensure we are looking at this repo
+        if REPO_NAME in app.get("git_repository", ""):
+            # And specific branch
+            if app.get("git_branch") == branch:
+                return app
+    return None
+
+def create_app(branch, domain):
+    log(f"Creating application for {REPO_NAME} (Branch: {branch})...")
     payload = {
         "project_uuid": PROJECT_UUID,
-        "environment_name": ENV_NAME,
+        "environment_name": "production", # Using 'production' env in Coolify logic, though logically it maps to our env
         "server_uuid": DESTINATION_UUID,
         "git_repository": "https://github.com/" + REPO_NAME,
-        "git_branch": BRANCH,
+        "git_branch": branch,
         "build_pack": "dockerfile",
         "ports_exposes": "8080", 
-        # "ports_mappings": "8080:8080" # REMOVED: Causes bind error on host
+        "name": get_app_name(branch, "preview" if "feature" in branch else "production"), # Attempt to set name
+        "description": f"Auto-deployed for branch {branch}"
     }
     
     endpoint = f"{COOLIFY_URL}/api/v1/applications/public"
-    log(f"Trying endpoint: {endpoint}")
     resp = requests.post(endpoint, json=payload, headers=headers)
     return check_response(resp)
 
@@ -76,130 +120,49 @@ def get_envs(app_uuid):
     return check_response(resp)
 
 def set_env(app_uuid, key, value):
-    # First get existing envs to decide on POST (create) vs PATCH (update)
     existing_envs = get_envs(app_uuid)
-    log(f"DEBUG: Found {len(existing_envs)} envs: {[e.get('key') for e in existing_envs]}")
-    # print(existing_envs) # Uncomment for full debug
-    # API v1 returns list of dicts. Structure usually: [{'key': 'FOO', 'value': 'bar', 'uuid': '...'}]
-    
     target_env = next((e for e in existing_envs if e.get('key') == key), None)
     
     if target_env:
-        log(f"Updating env {key}={value}...")
+        # Only update if changed
+        if target_env.get('value') == value:
+            return True
+            
+        log(f"Updating env {key}...")
         env_uuid = target_env.get('uuid')
+        # Delete old
+        requests.delete(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/envs/{env_uuid}", headers=headers)
         
-        # Try DELETE then CREATE (Nuclear option since PATCH is failing)
-        log(f"Deleting existing env {key} ({env_uuid})...")
-        if env_uuid:
-             try:
-                 requests.delete(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/envs/{env_uuid}", headers=headers)
-             except:
-                 pass
-        
-        # Create new
-        payload = {
-            "key": key,
-            "value": value,
-            "is_preview": False,
-            "is_literal": True
-        }
-        resp = requests.post(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/envs", json=payload, headers=headers)
-             
-    else:
-        log(f"Creating env {key}={value}...")
-        # Create new
-        payload = {
-            "key": key,
-            "value": value,
-            "is_preview": False,
-            "is_literal": True
-        }
-        resp = requests.post(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/envs", json=payload, headers=headers)
-
+    # Create new
+    payload = {
+        "key": key,
+        "value": value,
+        "is_preview": False,
+        "is_literal": True
+    }
+    resp = requests.post(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/envs", json=payload, headers=headers)
     check_response(resp)
     return True
 
 def deploy(app_uuid):
     log(f"Triggering deployment for {app_uuid}...")
-    
-    # Primary method: Restart (deploys latest code)
-    # Primary method: Deploy (ensures git pull)
-    # url = f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/restart"
-    # log(f"Trying {url}...")
-    # resp = requests.post(url, headers=headers)
-    # if resp.status_code == 200:
-    #     data = resp.json()
-    #     log(f"Deployment/Restart started: {data}")
-    #     return data.get("uuid")
-    
-    # log(f"Restart failed: {resp.status_code}. Trying direct deploy...")
-    
-    # Fallback: Query param deploy
     url = f"{COOLIFY_URL}/api/v1/deploy"
     params = {"uuid": app_uuid}
     resp = requests.post(url, params=params, headers=headers)
     if resp.status_code == 200:
         data = resp.json()
-        log(f"Deployment started: {data}")
+        log(f"Deployment started: {data.get('uuid')}")
         return data.get("uuid")
         
-    log(f"All deployment methods failed. Status: {resp.status_code}")
+    log(f"Deployment failed. Status: {resp.status_code}")
     log(resp.text)
     sys.exit(1)
 
-
-def get_logs(app_uuid):
-    # Try to get build logs
-    # Note: URL might need adjustment based on API. 
-    # Usually /api/v1/applications/{uuid}/logs or similar.
-    log(f"Fetching logs for {app_uuid}...")
-    resp = requests.get(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}/logs", headers=headers)
-    if resp.status_code == 200:
-        print(resp.text)
-    else:
-        log(f"Failed to get logs: {resp.status_code}")
-
-def main():
-    app = find_existing_app()
+def configure_traefik(app_uuid, fqdn):
+    hostname = fqdn.replace("http://", "").replace("https://", "").strip("/")
+    log(f"Configuring Traefik labels for host: {hostname}")
     
-    if app:
-        log(f"Found existing app: {app['uuid']}")
-        app_uuid = app['uuid']
-        # get_logs(app_uuid) # Uncomment to debug
-    else:
-        log("App not found. Creating new...")
-        app_data = create_app()
-        app_uuid = app_data.get("uuid")
-        log(f"App created with UUID: {app_uuid}")
-    
-    # Update config (Branch & Ports)
-    log("Updating config (Branch & Ports)...")
-    payload = {
-        "ports_mappings": None,
-        "git_branch": BRANCH
-    }
-    resp = requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json=payload, headers=headers)
-    log(f"Config update response: {resp.status_code}")
-    if resp.status_code != 200:
-        log(f"Update failed: {resp.text}")
-    
-    # Get details to find FQDN
-    check_resp = requests.get(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", headers=headers)
-    app_details = {}
-    if check_resp.status_code == 200:
-        app_details = check_resp.json()
-        log(f"Verified FQDN: {app_details.get('fqdn')}")
-        log(f"Verified Ports: {app_details.get('ports_mappings')}")
-
-    # Configure Traefik Labels (Enable HTTP/Flexible SSL)
-    fqdn_full = app_details.get('fqdn', '')
-    if fqdn_full:
-        hostname = fqdn_full.replace("http://", "").replace("https://", "").strip("/")
-        log(f"Configuring Traefik labels for host: {hostname}")
-        
-        # Labels without redirect-to-https to allow flexible SSL
-        # Note: We must encode to base64
-        labels = f"""traefik.enable=true
+    labels = f"""traefik.enable=true
 traefik.http.middlewares.gzip.compress=true
 traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
 traefik.http.routers.http-0-{app_uuid}.entryPoints=http
@@ -218,31 +181,70 @@ caddy_0.handle_path.0_reverse_proxy={{upstreams 8080}}
 caddy_0.handle_path=/*
 caddy_0.header=-Server
 caddy_0.try_files={{path}} /index.html /index.php
-caddy_0={fqdn_full}
+caddy_0={fqdn}
 caddy_ingress_network=coolify"""
 
-        encoded_labels = base64.b64encode(labels.encode('utf-8')).decode('utf-8')
-        
-        log("Updating custom labels...")
-        label_payload = {
-            "custom_labels": encoded_labels
-        }
-        requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json=label_payload, headers=headers)
-        
-    log(f"Application URL should be: {fqdn_full}")
+    encoded_labels = base64.b64encode(labels.encode('utf-8')).decode('utf-8')
+    
+    label_payload = {
+        "custom_labels": encoded_labels
+    }
+    requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json=label_payload, headers=headers)
 
+def main():
+    parser = argparse.ArgumentParser(description='Deploy to Coolify')
+    parser.add_argument('--branch', required=True, help='Git branch to deploy')
+    parser.add_argument('--env', required=True, choices=['preview', 'development', 'production'], help='Target environment')
+    args = parser.parse_args()
+    
+    branch = args.branch
+    env = args.env
+    
+    desired_domain = get_domain(branch, env)
+    log(f"Starting deployment for Branch: {branch} -> Env: {env}")
+    log(f"Target Domain: {desired_domain}")
+    
+    # Check if app exists for this branch
+    app = find_app_by_branch_and_repo(branch)
+    
+    if app:
+        log(f"Found existing app: {app['uuid']}")
+        app_uuid = app['uuid']
+    else:
+        log("App not found for this branch. Creating new...")
+        app_data = create_app(branch, desired_domain)
+        app_uuid = app_data.get("uuid")
+        log(f"App created with UUID: {app_uuid}")
+    
+    # Update General Config (Branch)
+    log("Updating config (Branch)...")
+    payload = {
+        "git_branch": branch,
+        "ports_mappings": None # Clean up potentially bad ports
+    }
+    requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json=payload, headers=headers)
+    
+    # Update Domain (if different)
+    check_resp = requests.get(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", headers=headers)
+    if check_resp.status_code == 200:
+        current_data = check_resp.json()
+        if current_data.get('fqdn') != desired_domain:
+             log(f"Updating FQDN to {desired_domain}...")
+             # Coolify API for FQDN update usually in general patch
+             requests.patch(f"{COOLIFY_URL}/api/v1/applications/{app_uuid}", json={"fqdn": desired_domain}, headers=headers)
+
+    # Configure Traefik Labels (CRITICAL for SSL/Routing)
+    configure_traefik(app_uuid, desired_domain)
+    
     # Set Envs
-    for k, v in ENVS.items():
+    for k, v in BASE_ENVS.items():
         set_env(app_uuid, k, v)
         
     # Deploy
     deploy_uuid = deploy(app_uuid)
     
-    log("Waiting for 30s before checking logs...")
-    time.sleep(30)
-    
-    # Try to verify via health check from script logic or just print info
-    log("Please check http://192.168.0.160:8080/health manually or via curl.")
+    log(f"Deployment triggered successfully! UUID: {deploy_uuid}")
+    log(f"Monitor at: {desired_domain}")
 
 if __name__ == "__main__":
     main()
