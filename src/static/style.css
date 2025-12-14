@@ -60,11 +60,15 @@ header {
 }
 
 .version-tag {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
+    font-size: 0.8rem;
+    color: var(--accent);
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid var(--accent);
+    padding: 0.25rem 0.75rem;
+    border-radius: 6px;
     margin-left: 1rem;
-    opacity: 0.6;
-    font-family: monospace;
+    font-family: 'Menlo', 'Monaco', monospace;
+    font-weight: 600;
 }
 
 .dot {
