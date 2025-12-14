@@ -1,0 +1,40 @@
+import pytest
+from fastapi.testclient import TestClient
+from src.main import app
+
+client = TestClient(app)
+
+def test_read_root():
+    """Verify the root endpoint serves the UI (HTML)."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "<!DOCTYPE html>" in response.text
+
+def test_api_info():
+    """Verify the info endpoint returns version and model metadata."""
+    response = client.get("/api/info")
+    assert response.status_code == 200
+    data = response.json()
+    assert "version" in data
+    assert "model" in data
+    assert data["service"] == "LangGraph Reasoning Service"
+    # Ensure version is not default 1.0.0 if we updated it
+    assert data["version"] == "0.1.0"
+
+def test_reason_stream_endpoint_exists():
+    """Verify the streaming endpoint exists.
+    
+    We don't need to fully stream (which requires LLM mock), 
+    just verifying 422 (validation error) confirms the route is registered.
+    If it didn't exist, we'd get 404.
+    """
+    # Sending empty body should trigger validation error (422)
+    response = client.post("/v1/reason/stream", json={})
+    
+    # 422 means: I saw your request but it's invalid (missing fields).
+    # 404 means: Who are you talking to? (Route missing).
+    assert response.status_code == 422 
+
+    # Send valid shape but maybe fail on internal logic if we don't mock graph?
+    # Actually, let's just stick to ensuring 404 is NOT returned.
