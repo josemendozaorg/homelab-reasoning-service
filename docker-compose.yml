@@ -4,8 +4,8 @@ services:
   reasoning-service:
     build: .
     container_name: reasoning-service
-    ports:
-      - "8080:8080"
+    # ports:
+    #   - "8080:8080"  # Removed to avoid conflicts in Coolify (let Traefik handle it)
     environment:
       - REASONING_OLLAMA_BASE_URL=http://192.168.0.140:11434
       - REASONING_OLLAMA_MODEL=deepseek-r1:14b
@@ -23,6 +23,7 @@ services:
       - "traefik.http.middlewares.gzip.compress=true"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.routers.reasoning-service.middlewares=gzip,redirect-to-https"
+      - "traefik.http.services.reasoning-service.loadbalancer.server.port=8080"
 
   # For local development without Coolify
   # Uncomment to run Ollama locally (requires GPU)
