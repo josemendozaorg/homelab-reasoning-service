@@ -116,8 +116,36 @@ async def test_inference() -> TestInferenceResponse:
         )
             
     except Exception as e:
-        logger.error(f"Inference check failed: {e}")
         raise HTTPException(
             status_code=500, 
             detail=f"Inference check failed: {str(e)}"
         )
+
+
+@router.post("/v1/reason/stream")
+async def reason_stream(request: ReasoningRequest, req: Request):
+    """Stream reasoning progress using Server-Sent Events (SSE)."""
+    
+    async def event_generator():
+        # Create initial state
+        initial_state = create_initial_state(request.query)
+        graph = get_reasoning_graph()
+        
+        # Configure the runnable to stream events
+        async for event in graph.astream_events(initial_state, version="v1"):
+            # We are interested in chat model stream events
+            if event["event"] == "on_chat_model_stream":
+                # Check if this event comes from the 'reason' node or 'critique' node
+                
+                chunk = event["data"]["chunk"]
+                if hasattr(chunk, "content") and chunk.content:
+                    data = {
+                        "token": chunk.content,
+                        "node": event.get("metadata", {}).get("langgraph_node", "unknown")
+                    }
+                    yield {"data": json.dumps(data)}
+                    
+        # Send end event
+        yield {"event": "done", "data": "Reasoning complete"}
+
+    return EventSourceResponse(event_generator())
