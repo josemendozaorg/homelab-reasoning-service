@@ -87,13 +87,49 @@ main {
     position: relative;
 }
 
-.response-area {
+.chat-container {
     flex: 1;
     overflow-y: auto;
     padding: 2rem 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+}
+
+.message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 90%;
+}
+
+.message.user {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.message.assistant {
+    align-self: flex-start;
+}
+
+.message-bubble {
+    padding: 1rem;
+    border-radius: 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    line-height: 1.6;
+}
+
+.message.user .message-bubble {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-bottom-right-radius: 4px;
+}
+
+.message.assistant .message-bubble {
+    border-bottom-left-radius: 4px;
+    background: #1e212b;
 }
 
 .placeholder-text {
@@ -114,22 +150,25 @@ main {
     color: var(--text-primary);
 }
 
+/* Trace within a message */
 .thinking-container {
-    background: var(--card-bg);
+    background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 8px;
     overflow: hidden;
-    transition: all 0.3s ease;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    max-width: 100%;
 }
 
 .thinking-header {
-    padding: 0.75rem 1rem;
-    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem 0.75rem;
+    background: rgba(0, 0, 0, 0.3);
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     font-weight: 500;
     color: var(--text-secondary);
     user-select: none;
@@ -140,14 +179,14 @@ main {
 }
 
 .thinking-content {
-    padding: 1rem;
+    padding: 0.75rem;
     font-family: 'Menlo', 'Monaco', monospace;
-    font-size: 0.85rem;
-    line-height: 1.6;
+    font-size: 0.8rem;
+    line-height: 1.5;
     color: var(--text-secondary);
     border-top: 1px solid var(--border);
     white-space: pre-wrap;
-    max-height: 400px;
+    max-height: 300px;
     overflow-y: auto;
 }
 

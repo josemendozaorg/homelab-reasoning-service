@@ -23,6 +23,10 @@ class ReasoningRequest(BaseModel):
         ge=0.0,
         le=2.0
     )
+    history: list[dict] = Field(
+        default=[],
+        description="Previous conversation history (list of messages)"
+    )
 
 
 class ReasoningResponse(BaseModel):

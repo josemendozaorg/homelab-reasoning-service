@@ -31,29 +31,12 @@
         </header>
 
         <main>
-            <div class="response-area" id="responseArea">
-                <div class="placeholder-text">
+            <div class="chat-container" id="chatContainer">
+                <div class="placeholder-text" id="placeholder">
                     <h1>What can I solve for you?</h1>
                     <p>Ask a complex question requiring multi-step reasoning.</p>
                 </div>
-
-                <div id="thinking" class="thinking-container hidden">
-                    <div class="thinking-header" onclick="toggleThinking()">
-                        <span class="spinner"></span>
-                        <span>Reasoning Trace</span>
-                        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2">
-                            <path d="M6 9l6 6 6-6" />
-                        </svg>
-                    </div>
-                    <div class="thinking-content" id="thinkingContent">
-                        <!-- Thinking steps will appear here -->
-                    </div>
-                </div>
-
-                <div id="finalAnswer" class="final-answer hidden">
-                    <!-- Final markdown answer -->
-                </div>
+                <!-- Dynamic messages go here -->
             </div>
 
             <div class="input-area">

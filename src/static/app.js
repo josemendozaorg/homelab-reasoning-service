@@ -1,12 +1,12 @@
 const queryInput = document.getElementById('queryInput');
 const submitBtn = document.getElementById('submitBtn');
 const queryForm = document.getElementById('queryForm');
-const responseArea = document.getElementById('responseArea');
-const thinking = document.getElementById('thinking');
-const thinkingContent = document.getElementById('thinkingContent');
-const finalAnswer = document.getElementById('finalAnswer');
+const chatContainer = document.getElementById('chatContainer');
+const placeholder = document.getElementById('placeholder');
 const showTraceCheckbox = document.getElementById('showTrace');
 const appVersion = document.getElementById('appVersion');
+
+let chatHistory = []; // Local history state
 
 // Initialize
 (async () => {
@@ -26,30 +26,91 @@ queryInput.addEventListener('input', () => {
     submitBtn.disabled = !queryInput.value.trim();
 });
 
+// Helper: Create message element
+function createMessageElement(role, content = '') {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+
+    // User message is simple bubble
+    if (role === 'user') {
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        bubble.textContent = content;
+        msgDiv.appendChild(bubble);
+    } else {
+        // Assistant message has thinking (trace) + bubble (answer)
+
+        // 1. Thinking container
+        const thinkingDiv = document.createElement('div');
+        thinkingDiv.className = 'thinking-container hidden'; // Hidden initially if empty
+        thinkingDiv.innerHTML = `
+            <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="spinner"></span>
+                <span>Reasoning Trace</span>
+                <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 9l6 6 6-6" />
+                </svg>
+            </div>
+            <div class="thinking-content"></div>
+        `;
+        msgDiv.appendChild(thinkingDiv);
+
+        // 2. Answer bubble
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble hidden'; // Hidden initially
+        msgDiv.appendChild(bubble);
+    }
+
+    return msgDiv;
+}
+
 // Submit handler
 queryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const query = queryInput.value.trim();
     if (!query) return;
 
-    // Reset UI
-    document.querySelector('.placeholder-text').classList.add('hidden');
-    thinking.classList.remove('hidden');
-    thinkingContent.textContent = "Initializing reasoner...";
-    finalAnswer.classList.add('hidden');
-    finalAnswer.innerHTML = '';
+    // UI Updates
+    placeholder.classList.add('hidden');
     submitBtn.disabled = true;
+    queryInput.value = '';
+    queryInput.style.height = 'auto';
 
-    if (!showTraceCheckbox.checked) {
-        thinking.classList.add('collapsed');
+    // 1. Append User Message
+    const userMsg = createMessageElement('user', query);
+    chatContainer.appendChild(userMsg);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    // 2. Append Assistant Placeholder
+    const assistantMsg = createMessageElement('assistant');
+    chatContainer.appendChild(assistantMsg);
+
+    const thinkingContainer = assistantMsg.querySelector('.thinking-container');
+    const thinkingContent = assistantMsg.querySelector('.thinking-content');
+    const answerBubble = assistantMsg.querySelector('.message-bubble');
+    const spinner = assistantMsg.querySelector('.spinner');
+
+    // Show thinking if enabled
+    if (showTraceCheckbox.checked) {
+        thinkingContainer.classList.remove('hidden');
+    } else {
+        thinkingContainer.classList.add('collapsed'); // Pre-collapse but show header? Or hide? 
+        // Logic: if checkbox off, hide logic entirely? Or just collapse?
+        // Let's hide initially, show only if trace arrives? 
+        // For simplicity: always remove hidden if trace starts arriving.
+        thinkingContainer.classList.remove('hidden');
+        thinkingContainer.classList.add('collapsed');
     }
 
     try {
-        // Use text/event-stream for streaming
         const response = await fetch('/v1/reason/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: query, max_iterations: 5 })
+            body: JSON.stringify({
+                query: query,
+                max_iterations: 5,
+                history: chatHistory // Send context
+            })
         });
 
         const reader = response.body.getReader();
@@ -67,10 +128,8 @@ queryForm.addEventListener('submit', async (e) => {
 
             const text = decoder.decode(value);
             buffer += text;
-
-            // SSE lines handling
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // Keep incomplete line
+            buffer = lines.pop();
 
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
@@ -81,10 +140,13 @@ queryForm.addEventListener('submit', async (e) => {
                         const data = JSON.parse(dataStr);
                         const token = data.token;
 
-                        // Simple state machine for parsing <think> tags on the fly
+                        // State machine
                         if (token.includes('<think>')) {
                             isInThinkTag = true;
-                            // Clean token
+                            // Ensure container visible when thought starts
+                            thinkingContainer.classList.remove('hidden');
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+
                             const parts = token.split('<think>');
                             reasoningAccumulator += parts[1] || '';
                         } else if (token.includes('</think>')) {
@@ -100,35 +162,35 @@ queryForm.addEventListener('submit', async (e) => {
                             }
                         }
 
-                        // Update UI
+                        // Update DOM
                         requestAnimationFrame(() => {
                             if (reasoningAccumulator) thinkingContent.textContent = reasoningAccumulator;
-                            // Use marked.parse for markdown, but throttle or sanitize if heavy? 
-                            // For token stream, simple innerHTML update with marked might flicker unclosed tags.
-                            // For now, simpler:
-                            finalAnswer.innerHTML = marked.parse(answerAccumulator);
-                            finalAnswer.classList.remove('hidden');
+
+                            if (answerAccumulator) {
+                                answerBubble.innerHTML = marked.parse(answerAccumulator);
+                                answerBubble.classList.remove('hidden');
+                            }
+
+                            // Auto-scroll logic (basic)
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
                         });
 
                     } catch (e) {
-                        console.error("Error parsing SSE data:", e);
+                        // Ignore parse errors on chunks
                     }
                 }
             }
         }
 
-        document.querySelector('.spinner').style.display = 'none';
+        // Finalize turn
+        spinner.style.display = 'none';
+        chatHistory.push({ role: 'user', content: query });
+        chatHistory.push({ role: 'assistant', content: answerAccumulator });
 
     } catch (error) {
-        finalAnswer.innerHTML = `<div style="color: #ef4444">Network Error: ${error.message}</div>`;
-        finalAnswer.classList.remove('hidden');
+        answerBubble.innerHTML = `<div style="color: #ef4444">Error: ${error.message}</div>`;
+        answerBubble.classList.remove('hidden');
     } finally {
         submitBtn.disabled = false;
-        queryInput.value = '';
-        queryInput.style.height = 'auto'; // Reset height
     }
 });
-
-function toggleThinking() {
-    thinking.classList.toggle('collapsed');
-}

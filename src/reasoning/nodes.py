@@ -70,10 +70,23 @@ Please provide an improved answer addressing the critique."""
         temperature=settings.temperature
     )
 
-    messages = [
-        SystemMessage(content=system_content),
-        HumanMessage(content=prompt)
-    ]
+    messages = [SystemMessage(content=system_content)]
+    
+    # Inject history if available (and not refining)
+    if not (state["critique"] and state["current_answer"]):
+        for msg in state.get("chat_history", []):
+            role = msg.get("role")
+            content = msg.get("content")
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                # For assistant history, prevent deepthink leakage if possible, 
+                # but standard ChatOllama handles "AIMessage".
+                # To be safe, we reconstruct roughly.
+                from langchain_core.messages import AIMessage
+                messages.append(AIMessage(content=content))
+
+    messages.append(HumanMessage(content=prompt))
 
     response_msg = await llm.ainvoke(messages)
     response_text = response_msg.content
