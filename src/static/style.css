@@ -511,3 +511,60 @@ button[type="submit"]:not(:disabled):hover {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--nb-text-tertiary);
 }
+
+/* Trace Step Headers */
+.trace-step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 1px solid var(--nb-border-subtle);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--nb-accent-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.trace-step-header:first-child {
+    margin-top: 0;
+}
+
+/* Processing Status */
+.processing-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    color: var(--nb-text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: var(--spacing-sm);
+    font-family: var(--font-mono);
+}
+
+.processing-dots::after {
+    content: '.';
+    animation: dots 1.5s steps(5, end) infinite;
+}
+
+@keyframes dots {
+
+    0%,
+    20% {
+        content: '.';
+    }
+
+    40% {
+        content: '..';
+    }
+
+    60% {
+        content: '...';
+    }
+
+    80%,
+    100% {
+        content: '';
+    }
+}

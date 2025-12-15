@@ -113,9 +113,23 @@ queryForm.addEventListener('submit', async (e) => {
     const answerBubble = assistantMsg.querySelector('.message-bubble');
     const pulse = assistantMsg.querySelector('.thinking-pulse');
 
-    // Handle initial trace visibility preference
+    // Show thinking if enabled
     if (showTraceCheckbox.checked) {
         // We will unhide it when data comes in
+    }
+
+    // Show initial processing state
+    const processingStatus = document.createElement('div');
+    processingStatus.className = 'processing-status';
+    processingStatus.innerHTML = `<span>Initializing System 2</span><span class="processing-dots"></span>`;
+    traceContent.appendChild(processingStatus);
+
+    // Ensure trace is visible for status
+    if (showTraceCheckbox.checked) {
+        traceWrapper.classList.remove('hidden');
+        if (!traceWrapper.querySelector('.trace-header').classList.contains('expanded')) {
+            toggleTrace(traceWrapper.querySelector('.trace-header'));
+        }
     }
 
     try {
@@ -137,6 +151,11 @@ queryForm.addEventListener('submit', async (e) => {
         let isInThinkTag = false;
         let reasoningAccumulator = '';
         let answerAccumulator = '';
+        let currentNode = null;
+        let stepCount = 0;
+
+        // Remove processing status on first real data
+        let firstChunk = true;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -155,19 +174,39 @@ queryForm.addEventListener('submit', async (e) => {
                     try {
                         const data = JSON.parse(dataStr);
                         const token = data.token;
+                        const upstreamNode = data.node || 'reason'; // Default to reason if missing
+
+                        // Handle Node Transition / Iteration Headers
+                        if (upstreamNode !== currentNode) {
+                            currentNode = upstreamNode;
+                            stepCount++;
+
+                            // Remove processing status if it exists
+                            if (firstChunk) {
+                                processingStatus.remove();
+                                firstChunk = false;
+                            }
+
+                            // Inject Header into Trace
+                            // Use raw HTML append to avoid overwriting content with textContent
+                            const header = document.createElement('div');
+                            header.className = 'trace-step-header';
+                            header.textContent = `Step ${stepCount}: ${currentNode}`;
+                            traceContent.appendChild(header);
+                        }
 
                         // State machine for <think> tags
                         if (token.includes('<think>')) {
                             isInThinkTag = true;
                             traceWrapper.classList.remove('hidden');
 
-                            // If user wants to see trace, expand it by default on start
-                            if (showTraceCheckbox.checked && !traceWrapper.querySelector('.trace-header').classList.contains('expanded')) {
-                                toggleTrace(traceWrapper.querySelector('.trace-header'));
-                            }
-
                             const parts = token.split('<think>');
                             reasoningAccumulator += parts[1] || '';
+
+                            // Direct append to trace content
+                            if (parts[1]) {
+                                traceContent.appendChild(document.createTextNode(parts[1]));
+                            }
 
                         } else if (token.includes('</think>')) {
                             const parts = token.split('</think>');
@@ -175,7 +214,11 @@ queryForm.addEventListener('submit', async (e) => {
                             answerAccumulator += parts[1] || '';
                             isInThinkTag = false;
 
-                            // Pulse animation stops or turns green/done? 
+                            if (parts[0]) {
+                                traceContent.appendChild(document.createTextNode(parts[0]));
+                            }
+
+                            // Pulse animation stops or turns green/done?
                             // For now, let's just leave it as indicator of "past thought"
                             pulse.style.opacity = '0.5';
                             pulse.style.animation = 'none';
@@ -183,23 +226,22 @@ queryForm.addEventListener('submit', async (e) => {
                         } else {
                             if (isInThinkTag) {
                                 reasoningAccumulator += token;
+                                traceContent.appendChild(document.createTextNode(token));
                             } else {
                                 answerAccumulator += token;
                             }
                         }
 
-                        // UI Updates
+                        // Update DOM
                         requestAnimationFrame(() => {
-                            if (reasoningAccumulator) {
-                                traceContent.textContent = reasoningAccumulator;
-                                // Auto-scroll trace if expanded
-                                if (traceContent.classList.contains('expanded')) {
-                                    traceContent.scrollTop = traceContent.scrollHeight;
-                                }
+                            // Scroll trace if expanded
+                            if (traceContent.classList.contains('expanded')) {
+                                traceContent.scrollTop = traceContent.scrollHeight;
                             }
 
                             if (answerAccumulator) {
                                 answerBubble.classList.remove('hidden');
+                                // Note: re-rendering markdown here is expensive but necessary for streaming markdown
                                 answerBubble.innerHTML = marked.parse(answerAccumulator);
                             }
 
