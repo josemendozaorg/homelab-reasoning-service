@@ -188,10 +188,9 @@ queryForm.addEventListener('submit', async (e) => {
                             }
                         }
 
-                        // Update DOM
+                        // UI Updates
                         requestAnimationFrame(() => {
                             if (reasoningAccumulator) {
-                                // For reasoning trace, we just append text comfortably
                                 traceContent.textContent = reasoningAccumulator;
                                 // Auto-scroll trace if expanded
                                 if (traceContent.classList.contains('expanded')) {
@@ -201,70 +200,7 @@ queryForm.addEventListener('submit', async (e) => {
 
                             if (answerAccumulator) {
                                 answerBubble.classList.remove('hidden');
-
-                                // To achieve the "token" animation effect without breaking Markdown parsing,
-                                // we need to render the Markdown but try to animate the new parts.
-                                // However, re-rendering Markdown on every token destroys the DOM nodes and restarts animations.
-                                // A common trick is to append raw HTML for the "live" part or use a specific container.
-
-                                // BUT, for a smoother robust implementation that supports Markdown:
-                                // We will render the FULL markdown, but the animation effect is best applied 
-                                // if we can isolate what changed.
-
-                                // COMPROMISE for "Circular Streaming" + "Readable":
-                                // We will update the innerHTML with the parsed markdown.
-                                // To get the "circular" feel, we can't easily wrap every character in the parsed HTML 
-                                // without complex diffing.
-
-                                // INSTED: We will apply a mask effect or just standard fade-in for the whole block? No.
-                                // User wants "circular pattern".
-
-                                // Let's try formatting the *new* text chunks as they come in? 
-                                // We can't easily do that with `marked.parse(accumulated)`.
-
-                                // ALTERNATIVE: Just update the HTML.
-                                // The user asked for "show the text slowly in a circular pattern".
-                                // If we just update innerHTML, it snaps in.
-
-                                // Let's try to simulate the effect by appending spans for the *streaming* phase
-                                // effectively bypassing Markdown for the "live" tail, OR just accepting that
-                                // Markdown re-render kills animation.
-
-                                // Let's stick to the Robust Method:
-                                // 1. Render Markdown to a temp container.
-                                // 2. Replace content.
-                                // 3. For the "Circular" feel, we add a CSS class to the MAIN container that has a 
-                                //    radial-gradient mask that moves? That might be too complex for this file.
-
-                                // SIMPLIFIED: We will wrap the text in a span if we were appending raw text.
-                                // Since we need Markdown, we will only animate the *Reasoning Trace* (which is raw text) easily.
-                                // For the *Answer*, we will rely on a generic fade in, 
-                                // UNLESS we implement a custom renderer.
-
-                                // WAIT, the user said "result of the LLM".
-                                // Let's apply the effect to the TRACE primarily, or the Answer?
-                                // "Result" usually implies the Answer.
-
-                                // OK, to support Markdown + Animation:
-                                // The only clean way is to append tokens as HTML elements *until* the end, then Markdown-ify?
-                                // No, because we want bold/lists to appear immediately.
-
-                                // Let's assume we just render.
-                                // For the "Circular" effect, let's update the styles in style.css to have a 
-                                // @keyframes that scans across the text?
-                                // No, that repeats.
-
-                                // LET'S DO THIS:
-                                // We will wrap the *new content* in a span `class="reveal-token"` 
-                                // ONLY IF we are in a text-only mode or if we accept that Markdown only happens at the end?
-                                // No, user wants readable.
-
-                                // HYBRID: Render Markdown. 
-                                // AND add a "scanning radar" overlay to the answerBubble?
-                                // That fits "Nano Banana".
-                                // Let's do that. It's a visual effect on the container.
                                 answerBubble.innerHTML = marked.parse(answerAccumulator);
-                                answerBubble.classList.add('scanning-active');
                             }
 
                             // Smooth scroll page to follow output
