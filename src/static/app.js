@@ -143,18 +143,14 @@ queryForm.addEventListener('submit', async (e) => {
             })
         });
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        // State for parsing
+        // Parser State
+        let buffer = ''; // Raw stream buffer
+        let tokenBuffer = ''; // Buffer for tag detection
         let isInThinkTag = false;
         let reasoningAccumulator = '';
         let answerAccumulator = '';
         let currentNode = null;
         let stepCount = 0;
-
-        // Remove processing status on first real data
         let firstChunk = true;
 
         while (true) {
@@ -174,95 +170,181 @@ queryForm.addEventListener('submit', async (e) => {
                     try {
                         const data = JSON.parse(dataStr);
                         const token = data.token;
-                        const upstreamNode = data.node || 'reason'; // Default to reason if missing
+                        const upstreamNode = data.node || 'reason';
 
-                        // Handle Node Transition / Iteration Headers
+                        // Handle Node Transition
                         if (upstreamNode !== currentNode) {
+                            // If we are switching back to 'reason' from something else (or initial)
+                            // AND we already have an answerAccumulator (meaning we have a draft),
+                            // we need to archive the current draft to the trace.
+                            if (currentNode && upstreamNode === 'reason' && answerAccumulator) {
+                                // Archive Draft
+                                const draftDiv = document.createElement('div');
+                                draftDiv.className = 'draft-answer-block';
+                                draftDiv.innerHTML = `<span class="draft-label">Draft Answer #${stepCount}</span>${marked.parse(answerAccumulator)}`;
+                                traceContent.appendChild(draftDiv);
+
+                                // Reset for new attempt
+                                answerAccumulator = '';
+                                answerBubble.innerHTML = '';
+                                answerBubble.classList.add('hidden');
+                            }
+
                             currentNode = upstreamNode;
                             stepCount++;
 
-                            // Remove processing status if it exists
                             if (firstChunk) {
                                 processingStatus.remove();
                                 firstChunk = false;
                             }
 
-                            // Inject Header into Trace
-                            // Use raw HTML append to avoid overwriting content with textContent
                             const header = document.createElement('div');
                             header.className = 'trace-step-header';
                             header.textContent = `Step ${stepCount}: ${currentNode}`;
                             traceContent.appendChild(header);
                         }
 
-                        // State machine for <think> tags
-                        if (token.includes('<think>')) {
-                            isInThinkTag = true;
-                            traceWrapper.classList.remove('hidden');
+                        // --- Robust Tag Parsing Logic ---
+                        tokenBuffer += token;
 
-                            const parts = token.split('<think>');
-                            reasoningAccumulator += parts[1] || '';
+                        // Process buffer while it contains closed tags or is safe to flush
+                        while (true) {
+                            const thinkStart = tokenBuffer.indexOf('<think>');
+                            const thinkEnd = tokenBuffer.indexOf('</think>');
 
-                            // Direct append to trace content
-                            if (parts[1]) {
-                                traceContent.appendChild(document.createTextNode(parts[1]));
-                            }
-
-                        } else if (token.includes('</think>')) {
-                            const parts = token.split('</think>');
-                            reasoningAccumulator += parts[0] || '';
-                            answerAccumulator += parts[1] || '';
-                            isInThinkTag = false;
-
-                            if (parts[0]) {
-                                traceContent.appendChild(document.createTextNode(parts[0]));
-                            }
-
-                            // Pulse animation stops or turns green/done?
-                            // For now, let's just leave it as indicator of "past thought"
-                            pulse.style.opacity = '0.5';
-                            pulse.style.animation = 'none';
-
-                        } else {
                             if (isInThinkTag) {
-                                reasoningAccumulator += token;
-                                traceContent.appendChild(document.createTextNode(token));
+                                if (thinkEnd !== -1) {
+                                    // Found closing tag: flush content up to tag, switch state
+                                    const content = tokenBuffer.slice(0, thinkEnd);
+                                    reasoningAccumulator += content;
+                                    traceContent.appendChild(document.createTextNode(content));
+
+                                    // Remove processed part + tag
+                                    tokenBuffer = tokenBuffer.slice(thinkEnd + 8); // 8 is len of </think>
+                                    isInThinkTag = false;
+                                } else {
+                                    // No closing tag yet. 
+                                    // Check for PARTIAL closing tag at the end (e.g. "</", "</th")
+                                    // If partial tag exists, wait for more data.
+                                    // Otherwise, flush everything.
+
+                                    // Regex for partial ending of </think>
+                                    // potential suffixes: <, </, </t, </th, </thi, </thin, </think (handled above)
+                                    const partialMatch = tokenBuffer.match(/(<|\/|< \/| <\/t|<\/th|<\/thi|<\/thin|<\/think)$/); // Simplified check
+
+                                    // More robust check: does string end with prefix of "</think>"?
+                                    let safeIndex = tokenBuffer.length;
+                                    for (let i = 1; i <= 7; i++) {
+                                        if (tokenBuffer.endsWith("</think>".slice(0, i))) {
+                                            safeIndex = tokenBuffer.length - i;
+                                            break;
+                                        }
+                                    }
+
+                                    if (safeIndex < tokenBuffer.length) {
+                                        // Flush up to safeIndex
+                                        const safeContent = tokenBuffer.slice(0, safeIndex);
+                                        reasoningAccumulator += safeContent;
+                                        traceContent.appendChild(document.createTextNode(safeContent));
+                                        tokenBuffer = tokenBuffer.slice(safeIndex);
+                                        break; // Need more data to resolve tag
+                                    } else {
+                                        // Safe to flush all
+                                        reasoningAccumulator += tokenBuffer;
+                                        traceContent.appendChild(document.createTextNode(tokenBuffer));
+                                        tokenBuffer = '';
+                                        break; // Done with this batch
+                                    }
+                                }
                             } else {
-                                answerAccumulator += token;
+                                // Not in think tag
+                                if (thinkStart !== -1) {
+                                    // Found opening tag
+                                    // Flush content before tag to answer (unless node is critique)
+                                    const content = tokenBuffer.slice(0, thinkStart);
+
+                                    if (currentNode === 'critique') {
+                                        reasoningAccumulator += content;
+                                        traceContent.appendChild(document.createTextNode(content));
+                                    } else {
+                                        answerAccumulator += content;
+                                    }
+
+                                    tokenBuffer = tokenBuffer.slice(thinkStart + 7); // 7 is len of <think>
+                                    isInThinkTag = true;
+                                    traceWrapper.classList.remove('hidden');
+                                } else {
+                                    // No opening tag. Check partial opening <think>
+                                    let safeIndex = tokenBuffer.length;
+                                    for (let i = 1; i <= 6; i++) {
+                                        if (tokenBuffer.endsWith("<think>".slice(0, i))) {
+                                            safeIndex = tokenBuffer.length - i;
+                                            break;
+                                        }
+                                    }
+
+                                    if (safeIndex < tokenBuffer.length) {
+                                        const safeContent = tokenBuffer.slice(0, safeIndex);
+                                        if (currentNode === 'critique') {
+                                            reasoningAccumulator += safeContent;
+                                            traceContent.appendChild(document.createTextNode(safeContent));
+                                        } else {
+                                            answerAccumulator += safeContent;
+                                        }
+                                        tokenBuffer = tokenBuffer.slice(safeIndex);
+                                        break;
+                                    } else {
+                                        if (currentNode === 'critique') {
+                                            reasoningAccumulator += tokenBuffer;
+                                            traceContent.appendChild(document.createTextNode(tokenBuffer));
+                                        } else {
+                                            answerAccumulator += tokenBuffer;
+                                        }
+                                        tokenBuffer = '';
+                                        break;
+                                    }
+                                }
                             }
                         }
 
-                        // Update DOM
+                        // UI Updates
                         requestAnimationFrame(() => {
-                            // Scroll trace if expanded
+                            // Scroll trace if expanding
                             if (traceContent.classList.contains('expanded')) {
                                 traceContent.scrollTop = traceContent.scrollHeight;
                             }
 
                             if (answerAccumulator) {
                                 answerBubble.classList.remove('hidden');
-                                // Note: re-rendering markdown here is expensive but necessary for streaming markdown
                                 answerBubble.innerHTML = marked.parse(answerAccumulator);
                             }
 
-                            // Smooth scroll page to follow output
-                            // Only if near bottom?
+                            // Smooth scroll
                             const isAtBottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 100;
                             if (isAtBottom) {
                                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                             }
                         });
 
+
                     } catch (e) {
-                        // Ignore parse errors on chunks
+                        // ignore
                     }
                 }
             }
         }
 
         // Finalize turn
-        pulse.style.opacity = '0.2';
+        pulse.style.opacity = '0.5';
         pulse.style.animation = 'none'; // Stop pulsing
+
+        // Add Final Answer Badge
+        if (answerBubble && !answerBubble.classList.contains('hidden')) {
+            const badge = document.createElement('div');
+            badge.className = 'final-answer-badge';
+            badge.textContent = 'Final Answer';
+            answerBubble.insertBefore(badge, answerBubble.firstChild);
+        }
 
         chatHistory.push({ role: 'user', content: query });
         chatHistory.push({ role: 'assistant', content: answerAccumulator });

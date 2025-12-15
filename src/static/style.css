@@ -548,6 +548,41 @@ button[type="submit"]:not(:disabled):hover {
     animation: dots 1.5s steps(5, end) infinite;
 }
 
+/* Draft / Archived Answer */
+.draft-answer-block {
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid var(--nb-text-tertiary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin: var(--spacing-sm) 0;
+    font-size: 0.85em;
+    color: var(--nb-text-secondary);
+    font-family: var(--font-sans);
+    /* Use sans for readability even in trace */
+}
+
+.draft-label {
+    font-size: 0.7em;
+    text-transform: uppercase;
+    color: var(--nb-text-tertiary);
+    margin-bottom: 4px;
+    display: block;
+}
+
+/* Final Answer Badge */
+.final-answer-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, var(--nb-accent-primary), var(--nb-accent-hover));
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--spacing-sm);
+    box-shadow: 0 2px 8px var(--nb-accent-subtle);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
 @keyframes dots {
 
     0%,
