@@ -143,6 +143,9 @@ queryForm.addEventListener('submit', async (e) => {
             })
         });
 
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
         // Parser State
         let buffer = ''; // Raw stream buffer
         let tokenBuffer = ''; // Buffer for tag detection
