@@ -603,3 +603,34 @@ button[type="submit"]:not(:disabled):hover {
         content: '';
     }
 }
+
+/* Search Components */
+.search-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin: 8px 0;
+    font-size: 0.9em;
+    font-family: var(--font-mono);
+}
+
+.search-icon {
+    font-size: 1.1em;
+}
+
+.search-results-block {
+    background: #101014;
+    border-left: 3px solid #34d399;
+    padding: 12px;
+    margin: 8px 0;
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+    color: var(--nb-text-secondary);
+    white-space: pre-wrap;
+    border-radius: 0 4px 4px 0;
+}

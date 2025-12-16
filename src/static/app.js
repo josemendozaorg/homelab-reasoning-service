@@ -248,14 +248,46 @@ queryForm.addEventListener('submit', async (e) => {
                                         // Flush up to safeIndex
                                         const safeContent = tokenBuffer.slice(0, safeIndex);
                                         reasoningAccumulator += safeContent;
-                                        traceContent.appendChild(document.createTextNode(safeContent));
+
+                                        // UI Render (check for <search> tag in safeContent)
+                                        // Simple regex replace for visibility (better would be to parse it out completely)
+                                        const searchRender = safeContent.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
+
+                                        // If we are in 'tool' node, wrap content in a result block
+                                        if (currentNode === 'tool') {
+                                            const toolContent = document.createElement('div');
+                                            toolContent.className = 'search-results-block';
+                                            toolContent.textContent = safeContent;
+                                            traceContent.appendChild(toolContent);
+                                        } else {
+                                            // For normal reasoning, use HTML injection for our pill
+                                            const span = document.createElement('span');
+                                            span.innerHTML = searchRender;
+                                            traceContent.appendChild(span);
+                                        }
+
                                         tokenBuffer = tokenBuffer.slice(safeIndex);
                                         break; // Need more data to resolve tag
                                     } else {
                                         // Safe to flush all
+                                        // Safe to flush all
                                         reasoningAccumulator += tokenBuffer;
-                                        traceContent.appendChild(document.createTextNode(tokenBuffer));
+
+                                        const searchRenderAll = tokenBuffer.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
+
+                                        if (currentNode === 'tool') {
+                                            const toolContent = document.createElement('div');
+                                            toolContent.className = 'search-results-block';
+                                            toolContent.textContent = tokenBuffer; // Keep raw for now, maybe markdown later
+                                            traceContent.appendChild(toolContent);
+                                        } else {
+                                            const span = document.createElement('span');
+                                            span.innerHTML = searchRenderAll;
+                                            traceContent.appendChild(span);
+                                        }
+
                                         tokenBuffer = '';
+
                                         break; // Done with this batch
                                     }
                                 }

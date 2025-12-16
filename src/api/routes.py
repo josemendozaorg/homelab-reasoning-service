@@ -144,6 +144,23 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                         "node": event.get("metadata", {}).get("langgraph_node", "unknown")
                     }
                     yield {"data": json.dumps(data)}
+
+            elif event["event"] == "on_chain_end":
+                # Check for tool node output
+                node_name = event.get("metadata", {}).get("langgraph_node")
+                if node_name == "tool":
+                    # Tool node returns a dict state update. We want the last item in reasoning_trace
+                    output = event["data"]["output"]
+                    if output and "reasoning_trace" in output:
+                        trace = output["reasoning_trace"]
+                        if trace:
+                            last_item = trace[-1]
+                            # Emit the whole block as one token (or chunk it if preferred, but block is fine for now)
+                            data = {
+                                "token": "\n" + last_item + "\n", # Ensure separation
+                                "node": "tool"
+                            }
+                            yield {"data": json.dumps(data)}
                     
         # Send end event
         yield {"event": "done", "data": "Reasoning complete"}

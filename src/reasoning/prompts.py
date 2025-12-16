@@ -16,7 +16,14 @@ Format:
 [Your step-by-step reasoning here]
 </think>
 
-[Your answer here]"""
+[Your answer here]
+
+To access external information, you can use the search tool.
+Format:
+<search>your search query</search>
+
+The reasoning process will pause, the search will be executed, and the results will be appended to your reasoning trace. You can then continue reasoning with the new information.
+Do not provide an answer if you trigger a search. Just the think block and the search tag."""
 
 CRITIQUE_SYSTEM_PROMPT = """You are a rigorous critic evaluating reasoning and answers.
 

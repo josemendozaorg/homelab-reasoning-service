@@ -9,6 +9,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from src.config import settings
 from .state import ReasoningState
 from .prompts import REASON_SYSTEM_PROMPT, CRITIQUE_SYSTEM_PROMPT, REFINE_SYSTEM_PROMPT
+from .tools import perform_web_search
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,20 @@ def parse_reasoning_response(response: str) -> tuple[str, str]:
     answer = answer_match.group(1).strip() if answer_match else response.strip()
 
     return reasoning, answer
+
+
+def parse_search_request(response: str) -> str | None:
+    """Parse a response to check for search requests.
+    
+    Args:
+        response: The full model response.
+        
+    Returns:
+        The search query if found, else None.
+    """
+    search_pattern = r"<search>(.*?)</search>"
+    search_match = re.search(search_pattern, response, re.DOTALL)
+    return search_match.group(1).strip() if search_match else None
 
 
 async def reason_node(state: ReasoningState) -> dict[str, Any]:
@@ -97,12 +112,52 @@ Please provide an improved answer addressing the critique."""
     if reasoning:
         new_trace.append(f"[Iteration {state['iteration'] + 1}]\n{reasoning}")
 
+    search_query = parse_search_request(response_text)
+    
+    if search_query:
+        logger.info(f"Reason node iteration {state['iteration'] + 1}: requested search for '{search_query}'")
+        new_trace.append(f"[Search Requested: {search_query}]")
+        return {
+            "reasoning_trace": new_trace,
+            "current_answer": None, # No answer yet if searching
+            "pending_search_query": search_query,
+            "iteration": state["iteration"] # Don't increment iteration for tool use steps, or maybe do? Let's keep it same or increment. 
+            # If we increment, we hit max iterations faster. Let's increment to prevent infinite loops.
+            # actually, let's NOT increment iteration for the tool step itself, but the reason node did work.
+            # Let's increment.
+        }
+
     logger.info(f"Reason node iteration {state['iteration'] + 1}: generated {len(answer)} char answer")
 
     return {
         "reasoning_trace": new_trace,
         "current_answer": answer,
-        "iteration": state["iteration"] + 1
+        "iteration": state["iteration"] + 1,
+        "pending_search_query": None
+    }
+
+
+async def tool_node(state: ReasoningState) -> dict[str, Any]:
+    """Execute pending tool calls.
+    
+    Args:
+        state: Current reasoning state.
+        
+    Returns:
+        Updated state with tool results.
+    """
+    query = state.get("pending_search_query")
+    if not query:
+        return {}
+        
+    results = perform_web_search(query)
+    
+    new_trace = state["reasoning_trace"].copy()
+    new_trace.append(f"[Search Results]\n{results}")
+    
+    return {
+        "reasoning_trace": new_trace,
+        "pending_search_query": None
     }
 
 
@@ -188,6 +243,22 @@ def should_continue(state: ReasoningState) -> str:
     Returns:
         "end" if complete, "reason" to continue refining.
     """
+    if state.get("pending_search_query"):
+        return "tool"
     if state.get("is_complete", False):
         return "end"
     return "reason"
+
+
+def route_reason_output(state: ReasoningState) -> str:
+    """Router for reason node output.
+    
+    Args:
+        state: Current reasoning state.
+        
+    Returns:
+        "tool" if search requested, else "critique".
+    """
+    if state.get("pending_search_query"):
+        return "tool"
+    return "critique"
