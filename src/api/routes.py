@@ -128,7 +128,7 @@ async def reason_stream(request: ReasoningRequest, req: Request):
     
     async def event_generator():
         # Create initial state
-        initial_state = create_initial_state(request.query)
+        initial_state = create_initial_state(request.query, request.history)
         graph = get_reasoning_graph()
         
         # Configure the runnable to stream events

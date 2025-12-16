@@ -21,13 +21,15 @@ class ReasoningState(TypedDict):
     iteration: int
     is_complete: bool
     final_answer: Optional[str]
+    chat_history: list[dict]
 
 
-def create_initial_state(query: str) -> ReasoningState:
+def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState:
     """Create the initial state for a reasoning task.
 
     Args:
         query: The question or problem to reason about.
+        history: Previous conversation history.
 
     Returns:
         Initial ReasoningState with empty trace and no answer.
@@ -39,5 +41,6 @@ def create_initial_state(query: str) -> ReasoningState:
         critique=None,
         iteration=0,
         is_complete=False,
-        final_answer=None
+        final_answer=None,
+        chat_history=history
     )

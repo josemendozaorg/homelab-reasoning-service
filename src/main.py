@@ -1,10 +1,11 @@
 """FastAPI application for the LangGraph Reasoning Service."""
 import logging
 from contextlib import asynccontextmanager
+import hashlib
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 
 from src.config import settings
 from src.api import router
@@ -16,6 +17,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def get_file_hash(filepath: str) -> str:
+    """Calculate MD5 hash of a file."""
+    try:
+        with open(filepath, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:8]
+    except FileNotFoundError:
+        return "0"
+
+# Calculate hashes at startup
+STYLE_HASH = get_file_hash("src/static/style.css")
+APP_HASH = get_file_hash("src/static/app.js")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -25,6 +37,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Ollama endpoint: {settings.ollama_base_url}")
     logger.info(f"Model: {settings.ollama_model}")
     logger.info(f"Max iterations: {settings.max_reasoning_iterations}")
+    logger.info(f"Static Assets - Style Hash: {STYLE_HASH}, App Hash: {APP_HASH}")
 
     yield
 
@@ -64,10 +77,27 @@ async def info():
         "model": settings.ollama_model
     }
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve the UI."""
-    return FileResponse('src/static/index.html')
+    """Serve the UI with dynamic cache busting."""
+    try:
+        with open('src/static/index.html', 'r') as f:
+            html_content = f.read()
+        
+        # Inject dynamic versions
+        html_content = html_content.replace("{{STYLE_VERSION}}", STYLE_HASH)
+        html_content = html_content.replace("{{APP_VERSION}}", APP_HASH)
+        
+        return HTMLResponse(
+            content=html_content, 
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Error: index.html not found</h1>", status_code=500)
 
 
 if __name__ == "__main__":

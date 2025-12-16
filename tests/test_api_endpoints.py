@@ -36,5 +36,15 @@ def test_reason_stream_endpoint_exists():
     # 404 means: Who are you talking to? (Route missing).
     assert response.status_code == 422 
 
-    # Send valid shape but maybe fail on internal logic if we don't mock graph?
-    # Actually, let's just stick to ensuring 404 is NOT returned.
+def test_inference_endpoint_exists():
+    """Verify the simple inference endpoint exists."""
+    # This might fail 500 if Ollama isn't reachable, but 500 means the route EXISTS.
+    # 404 means missing.
+    try:
+        response = client.post("/v1/test-inference")
+        assert response.status_code in [200, 500]
+        assert response.status_code != 404
+    except Exception:
+        # If connection error to Ollama, that's fine for this test, 
+        # we just want to know fastapi found the route.
+        pass

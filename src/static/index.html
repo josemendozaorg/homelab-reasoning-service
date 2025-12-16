@@ -4,82 +4,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepSeek Reasoning</title>
-    <link rel="stylesheet" href="/static/style.css?v=0.1.1">
+    <title>DeepSeek Reasoning Service</title>
+
+    <!-- Preconnect for fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=cal:wght@400;500;600&family=Inter:wght@400;500;600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
+
+    <!-- Markdown Parser -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Facivon -->
+    <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/style.css?v={{STYLE_VERSION}}">
 </head>
 
 <body>
-    <div class="container">
-        <header>
-            <div class="logo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                </svg>
-                <span>Reasoning Service</span>
+    <div class="app-container">
+        <!-- Sidebar / Header Area -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="logo-icon">
+                    <img src="/static/assets/logo.svg" width="32" height="32" alt="Logo">
+                </div>
+                <div class="brand-text">
+                    <h1>Reasoning Service</h1>
+                    <span class="version-badge" id="appVersion">v0.0.0</span>
+                </div>
             </div>
-            <div class="status-indicator">
-                <span class="dot"></span>
-                <span>System 2 Active</span>
+
+            <div class="header-controls">
+                <div class="status-badge" title="Service Status">
+                    <span class="status-dot"></span>
+                    <span>Online</span>
+                </div>
             </div>
-            <div id="appVersion" class="version-tag"></div>
         </header>
 
-        <main>
-            <div class="response-area" id="responseArea">
-                <div class="placeholder-text">
-                    <h1>What can I solve for you?</h1>
-                    <p>Ask a complex question requiring multi-step reasoning.</p>
-                </div>
-
-                <div id="thinking" class="thinking-container hidden">
-                    <div class="thinking-header" onclick="toggleThinking()">
-                        <span class="spinner"></span>
-                        <span>Reasoning Trace</span>
-                        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2">
-                            <path d="M6 9l6 6 6-6" />
-                        </svg>
-                    </div>
-                    <div class="thinking-content" id="thinkingContent">
-                        <!-- Thinking steps will appear here -->
-                    </div>
-                </div>
-
-                <div id="finalAnswer" class="final-answer hidden">
-                    <!-- Final markdown answer -->
-                </div>
-            </div>
-
-            <div class="input-area">
-                <form id="queryForm">
-                    <div class="input-wrapper">
-                        <textarea id="queryInput"
-                            placeholder="How many r's are in Strawberry? Explain your reasoning..." rows="1"
-                            oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
-                        <button type="submit" id="submitBtn" disabled>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <line x1="22" y1="2" x2="11" y2="13"></line>
-                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        <!-- Main Chat Area -->
+        <main class="chat-viewport">
+            <div class="chat-messages" id="chatContainer">
+                <div class="empty-state" id="placeholder">
+                    <div class="empty-state-content">
+                        <div class="icon-large">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="1.5">
+                                <path
+                                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3M3.343 15.657l-.707.707m16.555-4.996l-.707-.707M15.657 3.343l-.707.707M12 21a9 9 0 110-18 9 9 0 010 18z" />
                             </svg>
-                        </button>
+                        </div>
+                        <h2>How can I help you reason?</h2>
+                        <p>Ask complex questions. I'll think step-by-step.</p>
                     </div>
-                    <div class="settings">
-                        <label>
-                            <input type="checkbox" id="showTrace" checked> Show Thinking Process
-                        </label>
-                    </div>
-                </form>
+                </div>
+                <!-- Dynamic messages injected here -->
             </div>
         </main>
+
+        <!-- Input Area -->
+        <footer class="input-region">
+            <form class="input-form" id="queryForm">
+                <div class="input-wrapper">
+                    <textarea id="queryInput" placeholder="Ask a question..." rows="1" spellcheck="false"></textarea>
+                    <button type="submit" id="submitBtn" disabled aria-label="Send Message">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-options">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showTrace" checked>
+                        <span class="toggle-label">Show Reasoning Trace</span>
+                    </label>
+                    <span class="model-info" id="modelInfo">DeepSeek-R1</span>
+                </div>
+            </form>
+        </footer>
     </div>
-    <script src="/static/app.js?v=0.1.1"></script>
+
+    <script src="/static/app.js?v={{APP_VERSION}}"></script>
+    </script>
 </body>
 
 </html>

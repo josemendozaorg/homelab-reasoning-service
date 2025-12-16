@@ -16,8 +16,8 @@ class Settings(BaseSettings):
 
     # API Configuration
     api_host: str = "0.0.0.0"
-    api_port: int = 8080
-    app_version: str = "0.1.1"
+    # Application Version
+    app_version: str = "0.2.0"
 
     class Config:
         env_prefix = "REASONING_"
