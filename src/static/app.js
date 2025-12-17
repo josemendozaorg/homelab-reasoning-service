@@ -385,7 +385,7 @@ queryForm.addEventListener('submit', async (e) => {
         chatHistory.push({ role: 'assistant', content: answerAccumulator });
 
     } catch (error) {
-        answerBubble.innerHTML = `<div style="color: #ef4444; padding: 1rem; border: 1px solid #ef4444; border-radius: 8px;">Encryption Error: ${error.message}</div>`;
+        answerBubble.innerHTML = `<div style="color: #ef4444; padding: 1rem; border: 1px solid #ef4444; border-radius: 8px;">Connection Error: ${error.message}. Please check if Ollama is running.</div>`;
         answerBubble.classList.remove('hidden');
     } finally {
         submitBtn.disabled = false;
