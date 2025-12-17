@@ -9,9 +9,28 @@ const appVersion = document.getElementById('appVersion');
 let chatHistory = []; // Local history state
 
 // Initialize
+async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
+    try {
+        const response = await fetch(url, options);
+        // Retry on transient server errors (502, 503, 504)
+        if (!response.ok && (response.status === 502 || response.status === 503 || response.status === 504)) {
+            throw new Error(`Server Error: ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        if (retries > 0) {
+            console.warn(`Fetch failed, retrying... (${retries} attempts left)`, error);
+            await new Promise(resolve => setTimeout(resolve, backoff));
+            return fetchWithRetry(url, options, retries - 1, backoff * 2);
+        }
+        throw error;
+    }
+}
+
+// Keep initialization
 (async () => {
     try {
-        const res = await fetch('/api/info');
+        const res = await fetchWithRetry('/api/info');
         const data = await res.json();
         if (data.version) {
             appVersion.textContent = `v${data.version}`;
@@ -133,7 +152,7 @@ queryForm.addEventListener('submit', async (e) => {
     }
 
     try {
-        const response = await fetch('/v1/reason/stream', {
+        const response = await fetchWithRetry('/v1/reason/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
