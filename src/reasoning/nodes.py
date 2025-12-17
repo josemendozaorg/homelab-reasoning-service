@@ -10,8 +10,25 @@ from src.config import settings
 from .state import ReasoningState
 from .prompts import REASON_SYSTEM_PROMPT, CRITIQUE_SYSTEM_PROMPT, REFINE_SYSTEM_PROMPT
 from .tools import perform_web_search
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
+
+
+@retry(
+    stop=stop_after_attempt(3), 
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
+async def invoke_llm_with_retry(llm: ChatOllama, messages: list) -> str:
+    """Invoke LLM with retry logic for transient errors."""
+    try:
+        response_msg = await llm.ainvoke(messages)
+        return response_msg.content
+    except Exception as e:
+        logger.error(f"LLM invocation failed: {e}")
+        raise
 
 
 def parse_reasoning_response(response: str) -> tuple[str, str]:
@@ -63,15 +80,27 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
         Updated state fields with new reasoning trace and answer.
     """
     # Build the prompt
-    if state["critique"] and state["current_answer"]:
-        # We're refining based on critique
-        prompt = f"""Original question: {state["query"]}
+    if state["critique"]:
+        # We're refining based on critique (either of answer or search results)
+        if state["current_answer"]:
+            prompt = f"""Original question: {state["query"]}
 
 Previous answer: {state["current_answer"]}
 
 Critique: {state["critique"]}
 
 Please provide an improved answer addressing the critique."""
+        else:
+            # Critique of search results
+            prompt = f"""Original question: {state["query"]}
+
+Search Results Critique: {state["critique"]}
+
+Based on this critique of the search results, please either:
+1. Formulate an answer if the results are sufficient.
+2. Request a new search if the critique indicates missing information.
+
+Recall you can use <search>query</search> to search."""
         system_content = REFINE_SYSTEM_PROMPT
     else:
         # Initial reasoning
@@ -103,8 +132,7 @@ Please provide an improved answer addressing the critique."""
 
     messages.append(HumanMessage(content=prompt))
 
-    response_msg = await llm.ainvoke(messages)
-    response_text = response_msg.content
+    response_text = await invoke_llm_with_retry(llm, messages)
 
     reasoning, answer = parse_reasoning_response(response_text)
 
@@ -173,15 +201,33 @@ async def critique_node(state: ReasoningState) -> dict[str, Any]:
     Returns:
         Updated state with critique.
     """
-    prompt = f"""Question: {state["query"]}
+    args_answer = state.get("current_answer")
+    
+    if args_answer:
+        # Standard critique of an answer
+        prompt = f"""Question: {state["query"]}
 
 Reasoning trace:
 {chr(10).join(state["reasoning_trace"][-3:])}
 
-Current answer: {state["current_answer"]}
+Current answer: {args_answer}
 
 Evaluate this answer critically. If it's fully satisfactory, respond with APPROVED.
 Otherwise, provide specific feedback on what needs improvement."""
+    else:
+        # Critique of search results
+        # We look at the last item in reasoning trace which should be search results
+        last_trace = state["reasoning_trace"][-1] if state["reasoning_trace"] else "No trace"
+        prompt = f"""Question: {state["query"]}
+
+Recent Activity:
+{last_trace}
+
+Evaluate the search results above. 
+- Do they directly answer the user's question?
+- Are they relevant and sufficient?
+- If they are sufficient, respond with "Search results are sufficient, please formulate an answer."
+- If they are irrelevant or missing info, explain what is missing to guide the next search."""
 
     llm = ChatOllama(
         base_url=settings.ollama_base_url,
@@ -194,8 +240,7 @@ Otherwise, provide specific feedback on what needs improvement."""
         HumanMessage(content=prompt)
     ]
 
-    response_msg = await llm.ainvoke(messages)
-    critique = response_msg.content
+    critique = await invoke_llm_with_retry(llm, messages)
 
     logger.info(f"Critique node: {'APPROVED' if 'APPROVED' in critique.upper() else 'needs improvement'}")
 
@@ -213,8 +258,10 @@ def decide_node(state: ReasoningState) -> dict[str, Any]:
     """
     critique = state.get("critique", "")
     iteration = state.get("iteration", 0)
+    current_answer = state.get("current_answer")
 
-    is_approved = "APPROVED" in critique.upper()
+    # Only approve if we actually have an answer
+    is_approved = "APPROVED" in critique.upper() and current_answer is not None
     max_reached = iteration >= settings.max_reasoning_iterations
 
     if is_approved:

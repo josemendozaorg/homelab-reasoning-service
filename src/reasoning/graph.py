@@ -39,7 +39,7 @@ def create_reasoning_graph() -> StateGraph:
     # Remove fixed edge from reason
     # workflow.add_edge("reason", "critique") # Changed to conditional
     workflow.add_edge("critique", "decide")
-    workflow.add_edge("tool", "reason")
+    workflow.add_edge("tool", "critique")
 
     # Add conditional edge from reason
     workflow.add_conditional_edges(
