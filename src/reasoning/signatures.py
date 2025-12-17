@@ -67,3 +67,14 @@ class RefineSignature(dspy.Signature):
     previous_answer = dspy.InputField(desc="The previous answer")
     critique = dspy.InputField(desc="The critique to address")
     improved_response = dspy.OutputField(desc="The improved answer with reasoning")
+
+class SummarizeSignature(dspy.Signature):
+    """Summarize the content of a webpage relevant to the query.
+    
+    Extract key facts, figures, and details from the provided text that are most relevant to the user's query.
+    Do not add any external information. If the content is irrelevant, say so.
+    """
+    
+    query = dspy.InputField(desc="The user's original query")
+    content = dspy.InputField(desc="The scraped webpage content")
+    summary = dspy.OutputField(desc="Concise summary of relevant information")

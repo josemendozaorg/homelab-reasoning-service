@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   reasoning-service:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT_HASH: ${SOURCE_COMMIT:-local}
     container_name: reasoning-service
     # ports:
     #   - "8080:8080"  # Removed to avoid conflicts in Coolify (let Traefik handle it)

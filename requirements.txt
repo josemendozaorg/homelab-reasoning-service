@@ -15,6 +15,7 @@ pytest-asyncio>=0.23.0
 sse-starlette
 ddgs>=5.0.0
 tenacity>=8.0.0
+beautifulsoup4>=4.12.0
 
 # DSPy
 dspy-ai>=2.4.0
