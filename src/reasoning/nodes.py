@@ -182,7 +182,7 @@ async def tool_node(state: ReasoningState) -> dict[str, Any]:
     if not query:
         return {}
         
-    results = perform_web_search(query)
+    results = await perform_web_search(query)
     
     new_trace = state["reasoning_trace"].copy()
     new_trace.append(f"[Search Results]\n{results}")

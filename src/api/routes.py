@@ -154,51 +154,76 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                 item = await asyncio.wait_for(queue.get(), timeout=15.0)
                 
                 msg_type = item.get("type")
+                # logger.info(f"Queue item: {msg_type}") # too noisy
                 
                 if msg_type == "done":
+                    logger.info("Stream done signal received")
                     yield {"event": "done", "data": "Reasoning complete"}
                     break
                 
                 elif msg_type == "error":
+                    logger.error(f"Stream error signal: {item['payload']}")
                     yield {"event": "error", "data": item["payload"]}
                     break
                 
                 elif msg_type == "event":
                     event = item["payload"]
+                    event_type = event["event"]
+                    # logger.info(f"Graph event: {event_type}")
+                    
                     # We are interested in chat model stream events (if using LangChain/native streaming)
                     # BUT since we use DSPy (non-streaming node), we rely on node output
-                    if event["event"] == "on_chain_end":
+                    if event_type == "on_chain_end":
                          # Check for tool node output
                         node_name = event.get("metadata", {}).get("langgraph_node")
+                        logger.info(f"Chain end for node: {node_name}")
+                        
+                        output = event["data"].get("output")
+                        # logger.info(f"Output for {node_name}: {output}") # Full output
+                        if output:
+                             logger.info(f"Output keys: {output.keys() if isinstance(output, dict) else 'Not a dict'}")
+                        else:
+                             logger.info("Output is None/Empty")
+
                         if node_name == "tool":
+                            # Tool node returns a dict state update. We want the last item in reasoning_trace
                             output = event["data"]["output"]
                             if output and "reasoning_trace" in output:
                                 trace = output["reasoning_trace"]
                                 if trace:
                                     last_item = trace[-1]
+                                    logger.info(f"Yielding tool trace: {last_item[:50]}...")
                                     data = {
                                         "token": "\n" + last_item + "\n",
                                         "node": "tool"
                                     }
                                     yield {"data": json.dumps(data)}
                         elif node_name == "reason" or node_name == "critique":
-                             # For DSPy nodes (non-streaming), we get the chunk at the end
                              output = event["data"]["output"]
-                             # We need to extract the "delta" manually by comparing traces?
-                             # Or just send the latest trace item?
-                             # Logic: reason_node appends to reasoning_trace.
-                             # If we can get update from output:
-                             if output and "reasoning_trace" in output:
-                                trace = output["reasoning_trace"]
-                                if trace:
-                                   last_item = trace[-1]
-                                   # HEURISTIC: Only emit if it looks like a new item (contains iteration header or similar)
-                                   # Actually, just emit it. The UI appends.
-                                   data = {
-                                       "token": "\n" + last_item + "\n",
-                                       "node": node_name
-                                   }
-                                   yield {"data": json.dumps(data)}
+                             if output and isinstance(output, dict):
+                                 # 1. Emit Answer if present
+                                 current_answer = output.get("current_answer")
+                                 if current_answer:
+                                     logger.info(f"Yielding answer: {str(current_answer)[:50]}...")
+                                     data = {
+                                         "token": str(current_answer),
+                                         "node": node_name
+                                     }
+                                     yield {"data": json.dumps(data)}
+
+                                 # 2. Emit Reasoning Trace if present
+                                 if "reasoning_trace" in output:
+                                    trace = output["reasoning_trace"]
+                                    if trace:
+                                       last_item = trace[-1]
+                                       # Wrap in <think> so app.js routes it to trace bubble
+                                       token_payload = f"<think>\n{str(last_item)}\n</think>"
+                                       logger.info(f"Yielding trace: {token_payload[:50]}...")
+                                       data = {
+                                           "token": token_payload,
+                                           "node": node_name
+                                       }
+                                       yield {"data": json.dumps(data)}
 
             except asyncio.TimeoutError:
                 # Send keep-alive ping

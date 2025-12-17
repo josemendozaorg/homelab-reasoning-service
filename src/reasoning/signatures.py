@@ -31,15 +31,15 @@ class CritiqueSignature(dspy.Signature):
     5. Clarity and completeness
     
     If the answer is completely satisfactory and needs no improvement, respond with exactly:
-    APPROVED
+    Critique: APPROVED
     
-    Otherwise, provide specific, actionable feedback on what needs to be fixed.
+    Otherwise, provide specific, actionable feedback.
     """
     
     question = dspy.InputField(desc="The original question")
     reasoning_trace = dspy.InputField(desc="The history of reasoning steps")
     answer = dspy.InputField(desc="The proposed answer")
-    critique = dspy.OutputField(desc="Critique or APPROVED")
+    critique = dspy.OutputField(desc="Critique or APPROVED", prefix="Critique:\n")
 
 
 class CritiqueSearchSignature(dspy.Signature):
@@ -53,7 +53,7 @@ class CritiqueSearchSignature(dspy.Signature):
     
     question = dspy.InputField(desc="The original question")
     search_results = dspy.InputField(desc="The results from the web search")
-    critique = dspy.OutputField(desc="Evaluation of search results")
+    critique = dspy.OutputField(desc="Evaluation of search results", prefix="Critique:\n")
 
 
 class RefineSignature(dspy.Signature):

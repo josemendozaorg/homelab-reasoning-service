@@ -5,7 +5,7 @@ import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 import dspy
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 from .signatures import SummarizeSignature
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,8 @@ async def process_search_results(query: str, results: list) -> str:
             
         # Summarize with DSPy
         try:
-            pred = summarizer(query=query, content=cleaned_content)
+            # Run summarization in thread to avoid blocking loop
+            pred = await asyncio.to_thread(summarizer, query=query, content=cleaned_content)
             summary = pred.summary
             summaries.append(f"Source: {title} ({url})\nSummary: {summary}\n")
         except Exception as e:
@@ -78,7 +79,11 @@ async def process_search_results(query: str, results: list) -> str:
             
     return "\n---\n".join(summaries)
 
-def perform_web_search(query: str, max_results: int = 10) -> str:
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+# ... imports ...
+
+async def perform_web_search(query: str, max_results: int = 10) -> str:
     """Perform a deep web search: search -> scrape -> summarize.
     
     Args:
@@ -89,29 +94,35 @@ def perform_web_search(query: str, max_results: int = 10) -> str:
         Aggregated summaries of the scraped content.
     """
     logger.info(f"Performing deep web search for: {query}")
-    return _perform_web_search_with_retry(query, max_results)
-
-@retry(
-    stop=stop_after_attempt(3), 
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type(Exception),
-    reraise=True
-)
-def _perform_web_search_with_retry(query: str, max_results: int) -> str:
-    """Internal search function with retry logic."""
-    try:
-        with DDGS() as ddgs:
-            # Get links
-            results = list(ddgs.text(query, max_results=max_results))
-            
-        if not results:
-            return "No results found."
-            
-        # Run async scraping in synchronous wrapper
-        aggregated_summary = asyncio.run(process_search_results(query, results))
-        
-        return aggregated_summary
-        
-    except Exception as e:
-        logger.error(f"Search attempt failed: {e}")
-        raise # Reraise to trigger retry
+    
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(Exception),
+        reraise=True
+    ):
+        with attempt:
+            try:
+                # Synchronous part: searching via generic DDGS (blocking?)
+                # DDGS seems to be synchronous. We should run it in a thread.
+                # Or check if DDGS has async? It doesn't seem so standardly.
+                
+                # Run search in thread
+                logging.info("Running DDGS search...")
+                def run_search():
+                    with DDGS() as ddgs:
+                         return list(ddgs.text(query, max_results=max_results))
+                
+                results = await asyncio.to_thread(run_search)
+                
+                if not results:
+                    return "No results found."
+                    
+                # Async part: scraping
+                aggregated_summary = await process_search_results(query, results)
+                
+                return aggregated_summary
+                
+            except Exception as e:
+                logger.error(f"Search attempt failed: {e}")
+                raise
