@@ -27,8 +27,7 @@ services:
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.routers.reasoning-service.middlewares=gzip,redirect-to-https"
       - "traefik.http.services.reasoning-service.loadbalancer.server.port=8080"
-    volumes:
-      - ./.git:/app/.git:ro
+
 
   # For local development without Coolify
   # Uncomment to run Ollama locally (requires GPU)

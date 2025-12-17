@@ -5,9 +5,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/* \
-    && git config --global --add safe.directory /app
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
