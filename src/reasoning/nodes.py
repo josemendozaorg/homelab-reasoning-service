@@ -24,20 +24,27 @@ lm = dspy.LM(
 dspy.configure(lm=lm)
 
 
+import asyncio
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+# ... imports ...
+
 # Helper to wrap DSPy calls with retry
-@retry(
-    stop=stop_after_attempt(3), 
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type(Exception),
-    reraise=True
-)
-def predict_with_retry(predictor, **kwargs):
-    """Invoke DSPy predictor with retry logic."""
-    try:
-        return predictor(**kwargs)
-    except Exception as e:
-        logger.error(f"DSPy invocation failed: {e}")
-        raise
+async def predict_with_retry(predictor, **kwargs):
+    """Invoke DSPy predictor with retry logic in a thread."""
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(Exception),
+        reraise=True
+    ):
+        with attempt:
+            try:
+                # Run synchronous DSPy call in a separate thread to avoid blocking event loop
+                return await asyncio.to_thread(predictor, **kwargs)
+            except Exception as e:
+                logger.error(f"DSPy invocation failed: {e}")
+                raise
 
 
 def parse_reasoning_response(response: str) -> tuple[str, str]:
@@ -102,7 +109,7 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
         if state["current_answer"]:
             # Refine answer
             refine = dspy.Predict(RefineSignature)
-            pred = predict_with_retry(
+            pred = await predict_with_retry(
                 refine,
                 question=state["query"],
                 previous_answer=state["current_answer"],
@@ -116,7 +123,7 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
             # Let's map it to ReasonSignature but with context.
             reason = dspy.Predict(ReasonSignature)
             context = f"Search Results Critique: {state['critique']}"
-            pred = predict_with_retry(
+            pred = await predict_with_retry(
                 reason,
                 question=state["query"],
                 context=context
@@ -126,7 +133,7 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
         # Initial reasoning
         reason = dspy.Predict(ReasonSignature)
         history_str = format_history(state.get("chat_history", []))
-        pred = predict_with_retry(
+        pred = await predict_with_retry(
             reason,
             question=state["query"],
             context=history_str if history_str else "No previous context."
@@ -202,7 +209,7 @@ async def critique_node(state: ReasoningState) -> dict[str, Any]:
         # Standard critique of an answer
         critique_module = dspy.Predict(CritiqueSignature)
         trace_context = "\n".join(state["reasoning_trace"][-3:])
-        pred = predict_with_retry(
+        pred = await predict_with_retry(
             critique_module,
             question=state["query"],
             reasoning_trace=trace_context,
@@ -213,7 +220,7 @@ async def critique_node(state: ReasoningState) -> dict[str, Any]:
         # Critique of search results
         critique_search = dspy.Predict(CritiqueSearchSignature)
         last_trace = state["reasoning_trace"][-1] if state["reasoning_trace"] else "No trace"
-        pred = predict_with_retry(
+        pred = await predict_with_retry(
             critique_search,
             question=state["query"],
             search_results=last_trace
