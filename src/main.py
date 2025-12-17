@@ -74,6 +74,7 @@ async def info():
     return {
         "service": "LangGraph Reasoning Service",
         "version": settings.app_version,
+        "commit_hash": settings.commit_hash,
         "model": settings.ollama_model
     }
 
@@ -87,6 +88,7 @@ async def root():
         # Inject dynamic versions
         html_content = html_content.replace("{{STYLE_VERSION}}", STYLE_HASH)
         html_content = html_content.replace("{{APP_VERSION}}", APP_HASH)
+        html_content = html_content.replace("{{COMMIT_HASH}}", settings.commit_hash)
         
         return HTMLResponse(
             content=html_content, 

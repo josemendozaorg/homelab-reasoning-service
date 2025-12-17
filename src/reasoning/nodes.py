@@ -2,32 +2,41 @@
 import re
 import logging
 from typing import Any
-
-from langchain_community.chat_models import ChatOllama
-from langchain_core.messages import SystemMessage, HumanMessage
+import dspy
 
 from src.config import settings
 from .state import ReasoningState
-from .prompts import REASON_SYSTEM_PROMPT, CRITIQUE_SYSTEM_PROMPT, REFINE_SYSTEM_PROMPT
+from .signatures import ReasonSignature, CritiqueSignature, RefineSignature, CritiqueSearchSignature
 from .tools import perform_web_search
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
+# Configure DSPy with Ollama
+# Using dspy.LM for generic provider support (DSPy 3.x)
+lm = dspy.LM(
+    f"ollama/{settings.ollama_model}",
+    api_base=settings.ollama_base_url,
+    temperature=settings.temperature,
+    max_tokens=settings.max_context_tokens,
+    api_key="nomatter" # dummy key often needed
+)
+dspy.configure(lm=lm)
 
+
+# Helper to wrap DSPy calls with retry
 @retry(
     stop=stop_after_attempt(3), 
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type(Exception),
     reraise=True
 )
-async def invoke_llm_with_retry(llm: ChatOllama, messages: list) -> str:
-    """Invoke LLM with retry logic for transient errors."""
+def predict_with_retry(predictor, **kwargs):
+    """Invoke DSPy predictor with retry logic."""
     try:
-        response_msg = await llm.ainvoke(messages)
-        return response_msg.content
+        return predictor(**kwargs)
     except Exception as e:
-        logger.error(f"LLM invocation failed: {e}")
+        logger.error(f"DSPy invocation failed: {e}")
         raise
 
 
@@ -67,11 +76,18 @@ def parse_search_request(response: str) -> str | None:
     return search_match.group(1).strip() if search_match else None
 
 
-async def reason_node(state: ReasoningState) -> dict[str, Any]:
-    """Generate reasoning using DeepSeek-R1's native think tokens.
+def format_history(history: list) -> str:
+    """Format chat history for context."""
+    formatted = []
+    for msg in history:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        formatted.append(f"{role.upper()}: {content}")
+    return "\n".join(formatted)
 
-    This node prompts the model to reason through the problem step by step,
-    utilizing the <think> token format for internal deliberation.
+
+async def reason_node(state: ReasoningState) -> dict[str, Any]:
+    """Generate reasoning using DSPy and DeepSeek-R1's native think tokens.
 
     Args:
         state: Current reasoning state.
@@ -79,61 +95,45 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
     Returns:
         Updated state fields with new reasoning trace and answer.
     """
-    # Build the prompt
+    response_text = ""
+    
     if state["critique"]:
-        # We're refining based on critique (either of answer or search results)
+        # We're refining based on critique
         if state["current_answer"]:
-            prompt = f"""Original question: {state["query"]}
-
-Previous answer: {state["current_answer"]}
-
-Critique: {state["critique"]}
-
-Please provide an improved answer addressing the critique."""
+            # Refine answer
+            refine = dspy.Predict(RefineSignature)
+            pred = predict_with_retry(
+                refine,
+                question=state["query"],
+                previous_answer=state["current_answer"],
+                critique=state["critique"]
+            )
+            response_text = pred.improved_response
         else:
-            # Critique of search results
-            prompt = f"""Original question: {state["query"]}
-
-Search Results Critique: {state["critique"]}
-
-Based on this critique of the search results, please either:
-1. Formulate an answer if the results are sufficient.
-2. Request a new search if the critique indicates missing information.
-
-Recall you can use <search>query</search> to search."""
-        system_content = REFINE_SYSTEM_PROMPT
+            # Critique of search results -> formulate answer or new search
+            # We treat this as a "reasoning" step but with search context potentially
+            # Actually, the prompt in previous implementation was complex.
+            # Let's map it to ReasonSignature but with context.
+            reason = dspy.Predict(ReasonSignature)
+            context = f"Search Results Critique: {state['critique']}"
+            pred = predict_with_retry(
+                reason,
+                question=state["query"],
+                context=context
+            )
+            response_text = pred.response
     else:
         # Initial reasoning
-        prompt = state["query"]
-        system_content = REASON_SYSTEM_PROMPT
+        reason = dspy.Predict(ReasonSignature)
+        history_str = format_history(state.get("chat_history", []))
+        pred = predict_with_retry(
+            reason,
+            question=state["query"],
+            context=history_str if history_str else "No previous context."
+        )
+        response_text = pred.response
 
-    # Use LangChain ChatOllama for standard integration (supports streaming)
-    llm = ChatOllama(
-        base_url=settings.ollama_base_url,
-        model=settings.ollama_model,
-        temperature=settings.temperature
-    )
-
-    messages = [SystemMessage(content=system_content)]
-    
-    # Inject history if available (and not refining)
-    if not (state["critique"] and state["current_answer"]):
-        for msg in state.get("chat_history", []):
-            role = msg.get("role")
-            content = msg.get("content")
-            if role == "user":
-                messages.append(HumanMessage(content=content))
-            elif role == "assistant":
-                # For assistant history, prevent deepthink leakage if possible, 
-                # but standard ChatOllama handles "AIMessage".
-                # To be safe, we reconstruct roughly.
-                from langchain_core.messages import AIMessage
-                messages.append(AIMessage(content=content))
-
-    messages.append(HumanMessage(content=prompt))
-
-    response_text = await invoke_llm_with_retry(llm, messages)
-
+    # Parse output
     reasoning, answer = parse_reasoning_response(response_text)
 
     new_trace = state["reasoning_trace"].copy()
@@ -147,12 +147,9 @@ Recall you can use <search>query</search> to search."""
         new_trace.append(f"[Search Requested: {search_query}]")
         return {
             "reasoning_trace": new_trace,
-            "current_answer": None, # No answer yet if searching
+            "current_answer": None,
             "pending_search_query": search_query,
-            "iteration": state["iteration"] # Don't increment iteration for tool use steps, or maybe do? Let's keep it same or increment. 
-            # If we increment, we hit max iterations faster. Let's increment to prevent infinite loops.
-            # actually, let's NOT increment iteration for the tool step itself, but the reason node did work.
-            # Let's increment.
+            "iteration": state["iteration"] # Keep iteration same or increment? kept same in logic before comment
         }
 
     logger.info(f"Reason node iteration {state['iteration'] + 1}: generated {len(answer)} char answer")
@@ -192,9 +189,6 @@ async def tool_node(state: ReasoningState) -> dict[str, Any]:
 async def critique_node(state: ReasoningState) -> dict[str, Any]:
     """Evaluate the current answer for errors or improvements.
 
-    This node acts as a harsh critic, identifying logical flaws,
-    missing considerations, and areas for improvement.
-
     Args:
         state: Current reasoning state.
 
@@ -202,49 +196,33 @@ async def critique_node(state: ReasoningState) -> dict[str, Any]:
         Updated state with critique.
     """
     args_answer = state.get("current_answer")
+    critique_text = ""
     
     if args_answer:
         # Standard critique of an answer
-        prompt = f"""Question: {state["query"]}
-
-Reasoning trace:
-{chr(10).join(state["reasoning_trace"][-3:])}
-
-Current answer: {args_answer}
-
-Evaluate this answer critically. If it's fully satisfactory, respond with APPROVED.
-Otherwise, provide specific feedback on what needs improvement."""
+        critique_module = dspy.Predict(CritiqueSignature)
+        trace_context = "\n".join(state["reasoning_trace"][-3:])
+        pred = predict_with_retry(
+            critique_module,
+            question=state["query"],
+            reasoning_trace=trace_context,
+            answer=args_answer
+        )
+        critique_text = pred.critique
     else:
         # Critique of search results
-        # We look at the last item in reasoning trace which should be search results
+        critique_search = dspy.Predict(CritiqueSearchSignature)
         last_trace = state["reasoning_trace"][-1] if state["reasoning_trace"] else "No trace"
-        prompt = f"""Question: {state["query"]}
+        pred = predict_with_retry(
+            critique_search,
+            question=state["query"],
+            search_results=last_trace
+        )
+        critique_text = pred.critique
 
-Recent Activity:
-{last_trace}
+    logger.info(f"Critique node: {'APPROVED' if 'APPROVED' in critique_text.upper() else 'needs improvement'}")
 
-Evaluate the search results above. 
-- Do they directly answer the user's question?
-- Are they relevant and sufficient?
-- If they are sufficient, respond with "Search results are sufficient, please formulate an answer."
-- If they are irrelevant or missing info, explain what is missing to guide the next search."""
-
-    llm = ChatOllama(
-        base_url=settings.ollama_base_url,
-        model=settings.ollama_model,
-        temperature=0.3
-    )
-    
-    messages = [
-        SystemMessage(content=CRITIQUE_SYSTEM_PROMPT),
-        HumanMessage(content=prompt)
-    ]
-
-    critique = await invoke_llm_with_retry(llm, messages)
-
-    logger.info(f"Critique node: {'APPROVED' if 'APPROVED' in critique.upper() else 'needs improvement'}")
-
-    return {"critique": critique.strip()}
+    return {"critique": critique_text.strip()}
 
 
 def decide_node(state: ReasoningState) -> dict[str, Any]:

@@ -4,7 +4,8 @@ import time
 import sys
 
 # URL from test_inference.py
-URL = "https://dko8wckoc0c0o8k8gkwgo8sg.josemendoza.dev"
+# URL from test_inference.py
+URL = "http://localhost:8000"
 
 def test_strawberry():
     print(f"Testing reasoning service at {URL}...")
