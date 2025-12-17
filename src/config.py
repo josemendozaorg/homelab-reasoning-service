@@ -27,3 +27,19 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Dynamic Git Hash Fallback for Local Dev
+if settings.commit_hash == "local":
+    try:
+        import subprocess
+        # Check if .git directory exists or git command works
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'], 
+            capture_output=True, 
+            text=True, 
+            check=False
+        )
+        if result.returncode == 0:
+            settings.commit_hash = result.stdout.strip()
+    except Exception:
+        pass  # Fallback to "local" if git fails
