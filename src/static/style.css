@@ -634,3 +634,17 @@ button[type="submit"]:not(:disabled):hover {
     white-space: pre-wrap;
     border-radius: 0 4px 4px 0;
 }
+/* Placeholder Image */
+.placeholder-image {
+    width: 260px;
+    height: auto;
+    filter: drop-shadow(0 0 40px rgba(139, 92, 246, 0.25));
+    margin-bottom: var(--spacing-md);
+    animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+}
