@@ -15,6 +15,12 @@ class ReasonSignature(dspy.Signature):
     Use <think> tags to show your internal reasoning process.
 
     IMPORTANT: Always check the 'Context' first. If the answer is already present in the Context (e.g., current date/time), use it directly and DO NOT search.
+    
+    OUTPUT RULES:
+    1. Content inside <think> tags is for your internal thought process.
+    2. Content OUTSIDE <think> tags is the final answer to the user.
+    3. The final answer must be direct, natural, and contain ONLY the answer.
+    4. DO NOT include meta-commentary (e.g., "Reasoning:", "Dynamic Date Handling"), placeholders (e.g., "[currentdate]"), or explanations of how you constructed the response.
     """
     
     context = dspy.InputField(desc="Relevant context or history", format=str, prefix="Context:\n")
@@ -63,6 +69,10 @@ class RefineSignature(dspy.Signature):
     
     Take the previous answer and the critique, and produce an improved version.
     Use <think> tags to show how you're addressing each point of feedback.
+    
+    The final output (outside tags) must be the clean, corrected answer ONLY.
+    Do NOT include "Here is the improved answer:" or similar prefixes.
+    Do NOT include explanations of changes.
     """
     
     question = dspy.InputField(desc="Original question")

@@ -445,6 +445,9 @@ queryForm.addEventListener('submit', async (e) => {
             answerBubble.classList.remove('hidden');
         }
     } finally {
+        if (firstChunk && processingStatus) {
+            processingStatus.remove();
+        }
         submitBtn.disabled = false;
         submitBtn.classList.remove('hidden');
         stopBtn.remove();
