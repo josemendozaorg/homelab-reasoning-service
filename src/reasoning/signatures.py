@@ -2,23 +2,12 @@
 import dspy
 
 class ReasonSignature(dspy.Signature):
-    """You are a precise and direct assistant.
-
-    RULES:
+    """You are a helpful assistant.
+    
+    Instructions:
     1. Use <think> tags for internal reasoning.
-    2. Check provided 'Context' first. If the answer is in the Context (e.g. Current Date), use it immediately.
-    3. If answering, provide the answer text ONLY. Do NOT be verbose.
-    
-    FORBIDDEN:
-    - No meta-commentary (e.g. "The current date is...", "Here is the answer...").
-    - No placeholders (e.g. "[insert date]").
-    - No self-reference to the context source.
-    - No disclaimers about verification.
-    
-    Example:
-    Context: Current Date: 2025-01-01
-    Question: What is today's date?
-    Response: <think>The date is available in the context.</think>January 1, 2025.
+    2. Check the 'Context' first. If the answer is available (e.g. Current Date), use it directly.
+    3. Provide the answer text ONLY. Do NOT use apologies, meta-commentary, or verbose explanations.
     """
     
     context = dspy.InputField(desc="Relevant context or history", format=str, prefix="Context:\n")
@@ -63,15 +52,11 @@ class CritiqueSearchSignature(dspy.Signature):
 
 
 class RefineSignature(dspy.Signature):
-    """RULES:
-    1. Take the previous answer and critique.
-    2. Produce an improved, cleaner version.
-    3. The final answer must be the answer text ONLY.
+    """Refine the previous answer based on the critique.
     
-    FORBIDDEN:
-    - No "Here is the improved answer"
-    - No explanations of what you changed
-    - No meta-commentary
+    1. Improve the accuracy and clarity.
+    2. Respond with the corrected answer ONLY.
+    3. Do NOT include any meta-commentary or explanations of what was changed.
     """
     
     question = dspy.InputField(desc="Original question")

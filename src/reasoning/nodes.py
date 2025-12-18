@@ -66,6 +66,11 @@ def parse_reasoning_response(response: str) -> tuple[str, str]:
     answer_match = re.search(answer_pattern, response, re.DOTALL)
     answer = answer_match.group(1).strip() if answer_match else response.strip()
 
+    # Cleanup: Remove potential JSON/Dictionary artifacts from bad model output
+    # e.g. {'# reasoning#': ...}
+    if "{'#" in answer or '{"#' in answer:
+        answer = re.sub(r"\{['\"]#.*?\}", "", answer, flags=re.DOTALL).strip()
+    
     return reasoning, answer
 
 

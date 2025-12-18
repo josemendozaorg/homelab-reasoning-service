@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # Reasoning Configuration
     max_reasoning_iterations: int = 5
     max_context_tokens: int = 16000
-    temperature: float = 0.7
+    temperature: float = 0.2
 
     # API Configuration
     api_host: str = "0.0.0.0"
