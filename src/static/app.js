@@ -137,13 +137,10 @@ queryForm.addEventListener('submit', async (e) => {
         controller.abort();
     };
 
-    // Replace submit button's parent content or append nicely?
-    // Let's hide submit btn and show stop btn in the same container if possible
-    // Or just append it to .input-wrapper or .input-options?
-    // Let's replace the submit button icon/text temporarily or swap them
-    const originalSubmitContent = submitBtn.innerHTML;
+    // Swap Submit for Stop Button in the same position
+    const parent = submitBtn.parentNode;
     submitBtn.classList.add('hidden');
-    queryForm.querySelector('.input-options').appendChild(stopBtn);
+    parent.insertBefore(stopBtn, submitBtn);
 
 
     // 1. Append User Message
@@ -161,11 +158,6 @@ queryForm.addEventListener('submit', async (e) => {
     const answerBubble = assistantMsg.querySelector('.message-bubble');
     const pulse = assistantMsg.querySelector('.thinking-pulse');
 
-    // Show thinking if enabled
-    if (showTraceCheckbox.checked) {
-        // We will unhide it when data comes in
-    }
-
     // Show initial processing state
     const processingStatus = document.createElement('div');
     processingStatus.className = 'processing-status';
@@ -179,6 +171,16 @@ queryForm.addEventListener('submit', async (e) => {
             toggleTrace(traceWrapper.querySelector('.trace-header'));
         }
     }
+
+    // Parser State
+    let buffer = ''; // Raw stream buffer
+    let tokenBuffer = ''; // Buffer for tag detection
+    let isInThinkTag = false;
+    let reasoningAccumulator = '';
+    let answerAccumulator = '';
+    let currentNode = null;
+    let stepCount = 0;
+    let firstChunk = true;
 
     try {
         const response = await fetchWithRetry('/v1/reason/stream', {
@@ -194,16 +196,6 @@ queryForm.addEventListener('submit', async (e) => {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-
-        // Parser State
-        let buffer = ''; // Raw stream buffer
-        let tokenBuffer = ''; // Buffer for tag detection
-        let isInThinkTag = false;
-        let reasoningAccumulator = '';
-        let answerAccumulator = '';
-        let currentNode = null;
-        let stepCount = 0;
-        let firstChunk = true;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -226,9 +218,6 @@ queryForm.addEventListener('submit', async (e) => {
 
                         // Handle Node Transition
                         if (upstreamNode !== currentNode) {
-                            // If we are switching back to 'reason' from something else (or initial)
-                            // AND we already have an answerAccumulator (meaning we have a draft),
-                            // we need to archive the current draft to the trace.
                             if (currentNode && upstreamNode === 'reason' && answerAccumulator) {
                                 // Archive Draft
                                 const draftDiv = document.createElement('div');
@@ -266,25 +255,13 @@ queryForm.addEventListener('submit', async (e) => {
 
                             if (isInThinkTag) {
                                 if (thinkEnd !== -1) {
-                                    // Found closing tag: flush content up to tag, switch state
                                     const content = tokenBuffer.slice(0, thinkEnd);
                                     reasoningAccumulator += content;
                                     traceContent.appendChild(document.createTextNode(content));
-
-                                    // Remove processed part + tag
-                                    tokenBuffer = tokenBuffer.slice(thinkEnd + 8); // 8 is len of </think>
+                                    tokenBuffer = tokenBuffer.slice(thinkEnd + 8);
                                     isInThinkTag = false;
                                 } else {
-                                    // No closing tag yet. 
-                                    // Check for PARTIAL closing tag at the end (e.g. "</", "</th")
-                                    // If partial tag exists, wait for more data.
-                                    // Otherwise, flush everything.
-
-                                    // Regex for partial ending of </think>
-                                    // potential suffixes: <, </, </t, </th, </thi, </thin, </think (handled above)
-                                    const partialMatch = tokenBuffer.match(/(<|\/|< \/| <\/t|<\/th|<\/thi|<\/thin|<\/think)$/); // Simplified check
-
-                                    // More robust check: does string end with prefix of "</think>"?
+                                    // Robust wait for close tag
                                     let safeIndex = tokenBuffer.length;
                                     for (let i = 1; i <= 7; i++) {
                                         if (tokenBuffer.endsWith("</think>".slice(0, i))) {
@@ -294,71 +271,55 @@ queryForm.addEventListener('submit', async (e) => {
                                     }
 
                                     if (safeIndex < tokenBuffer.length) {
-                                        // Flush up to safeIndex
                                         const safeContent = tokenBuffer.slice(0, safeIndex);
                                         reasoningAccumulator += safeContent;
 
-                                        // UI Render (check for <search> tag in safeContent)
                                         // Simple regex replace for visibility (better would be to parse it out completely)
                                         const searchRender = safeContent.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
 
-                                        // If we are in 'tool' node, wrap content in a result block
                                         if (currentNode === 'tool') {
                                             const toolContent = document.createElement('div');
                                             toolContent.className = 'search-results-block';
                                             toolContent.textContent = safeContent;
                                             traceContent.appendChild(toolContent);
                                         } else {
-                                            // For normal reasoning, use HTML injection for our pill
                                             const span = document.createElement('span');
                                             span.innerHTML = searchRender;
                                             traceContent.appendChild(span);
                                         }
 
                                         tokenBuffer = tokenBuffer.slice(safeIndex);
-                                        break; // Need more data to resolve tag
+                                        break;
                                     } else {
-                                        // Safe to flush all
-                                        // Safe to flush all
                                         reasoningAccumulator += tokenBuffer;
-
                                         const searchRenderAll = tokenBuffer.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
-
                                         if (currentNode === 'tool') {
                                             const toolContent = document.createElement('div');
                                             toolContent.className = 'search-results-block';
-                                            toolContent.textContent = tokenBuffer; // Keep raw for now, maybe markdown later
+                                            toolContent.textContent = tokenBuffer;
                                             traceContent.appendChild(toolContent);
                                         } else {
                                             const span = document.createElement('span');
                                             span.innerHTML = searchRenderAll;
                                             traceContent.appendChild(span);
                                         }
-
                                         tokenBuffer = '';
-
-                                        break; // Done with this batch
+                                        break;
                                     }
                                 }
                             } else {
-                                // Not in think tag
                                 if (thinkStart !== -1) {
-                                    // Found opening tag
-                                    // Flush content before tag to answer (unless node is critique)
                                     const content = tokenBuffer.slice(0, thinkStart);
-
                                     if (currentNode === 'critique') {
                                         reasoningAccumulator += content;
                                         traceContent.appendChild(document.createTextNode(content));
                                     } else {
                                         answerAccumulator += content;
                                     }
-
-                                    tokenBuffer = tokenBuffer.slice(thinkStart + 7); // 7 is len of <think>
+                                    tokenBuffer = tokenBuffer.slice(thinkStart + 7);
                                     isInThinkTag = true;
                                     traceWrapper.classList.remove('hidden');
                                 } else {
-                                    // No opening tag. Check partial opening <think>
                                     let safeIndex = tokenBuffer.length;
                                     for (let i = 1; i <= 6; i++) {
                                         if (tokenBuffer.endsWith("<think>".slice(0, i))) {
@@ -366,7 +327,6 @@ queryForm.addEventListener('submit', async (e) => {
                                             break;
                                         }
                                     }
-
                                     if (safeIndex < tokenBuffer.length) {
                                         const safeContent = tokenBuffer.slice(0, safeIndex);
                                         if (currentNode === 'critique') {
@@ -391,19 +351,14 @@ queryForm.addEventListener('submit', async (e) => {
                             }
                         }
 
-                        // UI Updates
                         requestAnimationFrame(() => {
-                            // Scroll trace if expanding
                             if (traceContent.classList.contains('expanded')) {
                                 traceContent.scrollTop = traceContent.scrollHeight;
                             }
-
                             if (answerAccumulator) {
                                 answerBubble.classList.remove('hidden');
                                 answerBubble.innerHTML = marked.parse(answerAccumulator);
                             }
-
-                            // Smooth scroll
                             const isAtBottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 100;
                             if (isAtBottom) {
                                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -420,7 +375,7 @@ queryForm.addEventListener('submit', async (e) => {
 
         // Finalize turn
         pulse.style.opacity = '0.5';
-        pulse.style.animation = 'none'; // Stop pulsing
+        pulse.style.animation = 'none';
 
         // Add Final Answer Badge
         if (answerBubble && !answerBubble.classList.contains('hidden')) {
@@ -434,11 +389,11 @@ queryForm.addEventListener('submit', async (e) => {
         chatHistory.push({ role: 'assistant', content: answerAccumulator });
 
     } catch (error) {
+        console.error("Stream error:", error);
         if (error.name === 'AbortError') {
-            // User stopped manually
             const cancelledMsg = document.createElement('div');
             cancelledMsg.className = 'error-badge';
-            cancelledMsg.style.color = '#fbbf24'; // Amber
+            cancelledMsg.style.color = '#fbbf24';
             cancelledMsg.style.marginTop = '1rem';
             cancelledMsg.textContent = 'Generation stopped by user.';
             traceContent.appendChild(cancelledMsg);
@@ -447,12 +402,22 @@ queryForm.addEventListener('submit', async (e) => {
             answerBubble.classList.remove('hidden');
         }
     } finally {
-        if (firstChunk && processingStatus) {
-            processingStatus.remove();
-        }
+        // cleanup
+        try {
+            if (firstChunk && processingStatus && processingStatus.parentNode) {
+                processingStatus.remove();
+            }
+        } catch (e) { console.warn("Error removing status:", e); }
+
         submitBtn.disabled = false;
         submitBtn.classList.remove('hidden');
-        stopBtn.remove();
+
+        try {
+            if (stopBtn && stopBtn.parentNode) {
+                stopBtn.remove();
+            }
+        } catch (e) { console.warn("Error removing stop btn:", e); }
+
         queryInput.focus();
     }
 });
