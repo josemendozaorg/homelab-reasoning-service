@@ -4,9 +4,7 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
-import dspy
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
-from .signatures import SummarizeSignature
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +53,15 @@ async def process_search_results(query: str, results: list) -> str:
         # Parallel fetch
         pages_content = await asyncio.gather(*tasks)
 
-    summaries = []
-    summarizer = dspy.Predict(SummarizeSignature)
     
-    for res, content in zip(results, pages_content):
+    # 2. Summarize each page
+    summaries = []
+    
+    # Import local LLM client
+    from .llm import llm
+    
+    for i, content in enumerate(pages_content):
+        res = results[i]
         title = res.get('title', 'No Title')
         url = res.get('href', '#')
         
@@ -66,22 +69,25 @@ async def process_search_results(query: str, results: list) -> str:
             summaries.append(f"Source: {title} ({url})\nFailed to retrieve content.\n")
             continue
             
-        cleaned_content = clean_text(content)
-        if not cleaned_content:
+        cleaned_text = clean_text(content)
+        if not cleaned_text:
             summaries.append(f"Source: {title} ({url})\nNo readable content found.\n")
             continue
             
-        # Summarize with DSPy
+        system_prompt = "You are a helpful research assistant. Summarize the provided text, extracting only facts relevant to the user's query. If irrelevant, say 'Irrelevant'."
+        user_msg = f"Query: {query}\n\nText Content:\n{cleaned_text[:4000]}" # Truncate from 10k to 4k for safety
+        
         try:
-            # Run summarization in thread to avoid blocking loop
-            pred = await asyncio.to_thread(summarizer, query=query, content=cleaned_content)
-            summary = pred.summary
-            summaries.append(f"Source: {title} ({url})\nSummary: {summary}\n")
+            summary = await llm.chat([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg}
+            ])
+            if "Irrelevant" not in summary:
+                summaries.append(f"Source: {title} ({url})\nSummary: {summary}\n")
         except Exception as e:
-            logger.error(f"Summarization failed for {url}: {e}")
-            summaries.append(f"Source: {title} ({url})\nSummarization failed.\n")
-            
-    return "\n---\n".join(summaries)
+            logger.warning(f"Summarization failed for source {i}: {e}")
+
+    return "\n---\n".join(summaries) if summaries else "No relevant information found."
 
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 

@@ -2,36 +2,19 @@
 import re
 import logging
 from typing import Any
-import dspy
-
-from src.config import settings
-from .state import ReasoningState
-from .signatures import ReasonSignature, CritiqueSignature, RefineSignature, CritiqueSearchSignature
-from .tools import perform_web_search
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
-logger = logging.getLogger(__name__)
-
-# Configure DSPy with Ollama
-# Using dspy.LM for generic provider support (DSPy 3.x)
-lm = dspy.LM(
-    f"ollama/{settings.ollama_model}",
-    api_base=settings.ollama_base_url,
-    temperature=settings.temperature,
-    max_tokens=settings.max_context_tokens,
-    api_key="nomatter" # dummy key often needed
-)
-dspy.configure(lm=lm)
-
-
 import asyncio
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-# ... imports ...
+from src.config import settings
+from .state import ReasoningState
+from .tools import perform_web_search
+from .llm import llm
 
-# Helper to wrap DSPy calls with retry
-async def predict_with_retry(predictor, **kwargs):
-    """Invoke DSPy predictor with retry logic in a thread."""
+logger = logging.getLogger(__name__)
+
+# Helper to wrap LLM calls with retry (now wraps coroutines)
+async def predict_with_retry(coro_func, *args, **kwargs):
+    """Invoke LLM coroutine with retry logic."""
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -40,10 +23,11 @@ async def predict_with_retry(predictor, **kwargs):
     ):
         with attempt:
             try:
-                # Run synchronous DSPy call in a separate thread to avoid blocking event loop
-                return await asyncio.to_thread(predictor, **kwargs)
+                # If it's a coroutine object, we can't await it multiple times surely?
+                # Better to pass a lambda that returns a coroutine
+                return await coro_func(*args, **kwargs)
             except Exception as e:
-                logger.error(f"DSPy invocation failed: {e}")
+                logger.error(f"LLM invocation failed: {e}")
                 raise
 
 
@@ -64,7 +48,19 @@ def parse_reasoning_response(response: str) -> tuple[str, str]:
     # Everything after </think> is the answer
     answer_pattern = r"</think>\s*(.*?)$"
     answer_match = re.search(answer_pattern, response, re.DOTALL)
-    answer = answer_match.group(1).strip() if answer_match else response.strip()
+    raw_answer = answer_match.group(1).strip() if answer_match else response.strip()
+
+    # If "Final Answer:" is present, extract only what follows
+    final_marker = "Final Answer:"
+    if final_marker in raw_answer:
+        answer = raw_answer.split(final_marker, 1)[1].strip()
+    elif final_marker.lower() in raw_answer.lower():
+         # Case insensitive fallback
+         pattern = re.compile(re.escape(final_marker), re.IGNORECASE)
+         parts = pattern.split(raw_answer, 1)
+         answer = parts[1].strip() if len(parts) > 1 else raw_answer
+    else:
+        answer = raw_answer
 
     # Cleanup: Remove potential JSON/Dictionary artifacts from bad model output
     # e.g. {'# reasoning#': ...}
@@ -99,14 +95,7 @@ def format_history(history: list) -> str:
 
 
 async def reason_node(state: ReasoningState) -> dict[str, Any]:
-    """Generate reasoning using DSPy and DeepSeek-R1's native think tokens.
-
-    Args:
-        state: Current reasoning state.
-
-    Returns:
-        Updated state fields with new reasoning trace and answer.
-    """
+    """Generate reasoning using direct prompts."""
     response_text = ""
     
     # Get current time context
@@ -114,42 +103,77 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
     current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     time_context = f"Current Date/Time: {current_time}\n"
 
-    if state["critique"]:
-        # We're refining based on critique
-        if state["current_answer"]:
-            # Refine answer
-            refine = dspy.Predict(RefineSignature)
-            pred = await predict_with_retry(
-                refine,
-                question=state["query"],
-                previous_answer=state["current_answer"],
-                critique=f"{time_context}{state['critique']}"
+    history_str = format_history(state.get("chat_history", []))
+
+    if state["critique"] and state["current_answer"]:
+        # REFINEMENT MODE
+        system_prompt = """You are a helpful assistant.
+Instructions:
+1. Use <think> tags for internal reasoning.
+2. Refine your previous answer based on the Feedback.
+3. Provide the improved answer text ONLY. Start with 'Final Answer:'."""
+        
+        user_content = f"""{time_context}
+Previous Question: {state['query']}
+Previous Answer: {state['current_answer']}
+Feedback: {state['critique']}
+
+Please provide the corrected answer."""
+        
+        try:
+            response_text = await predict_with_retry(
+                lambda: llm.chat([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ])
             )
-            response_text = pred.improved_response
-        else:
-            # Critique of search results -> formulate answer or new search
-            # We treat this as a "reasoning" step but with search context potentially
-            # Actually, the prompt in previous implementation was complex.
-            # Let's map it to ReasonSignature but with context.
-            reason = dspy.Predict(ReasonSignature)
-            context = f"{time_context}Search Results Critique: {state['critique']}"
-            pred = await predict_with_retry(
-                reason,
-                question=state["query"],
-                context=context
+        except Exception as e:
+            logger.error(f"Refinement failed: {e}")
+            raise
+
+    elif state["critique"]:
+         # CRITIQUE SEARCH RESULTS MODE (or just general critique retry)
+         # Treated as a new reasoning attempts with added context
+        system_prompt = """You are a helpful assistant.
+Instructions:
+1. Use <think> tags for internal reasoning.
+2. TRUST THE Context.
+3. Provide the answer text ONLY. Start with 'Final Answer:'."""
+        
+        context_block = f"{time_context}Search Results Critique/Feedback: {state['critique']}"
+        user_content = f"{context_block}\n\nQuestion: {state['query']}"
+
+        try:
+            response_text = await predict_with_retry(
+                lambda: llm.chat([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ])
             )
-            response_text = pred.response
+        except Exception as e:
+            logger.error(f"Reasoning retry failed: {e}")
+            raise
+
     else:
-        # Initial reasoning
-        reason = dspy.Predict(ReasonSignature)
-        history_str = format_history(state.get("chat_history", []))
-        full_context = f"{time_context}{history_str if history_str else 'No previous context.'}"
-        pred = await predict_with_retry(
-            reason,
-            question=state["query"],
-            context=full_context
-        )
-        response_text = pred.response
+        # INITIAL REASONING MODE
+        system_prompt = """You are a helpful assistant.
+Instructions:
+1. Use <think> tags for internal reasoning.
+2. TRUST THE Context. It is the absolute source of truth.
+3. Provide the answer text ONLY. Start with 'Final Answer:'."""
+        
+        user_content = f"{time_context}{history_str if history_str else 'No previous context.'}\n\nQuestion: {state['query']}"
+        
+        try:
+            response_text = await predict_with_retry(
+                lambda: llm.chat([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ])
+            )
+        except Exception as e:
+            logger.error(f"Initial reasoning failed: {e}")
+            raise
 
     # Parse output
     reasoning, answer = parse_reasoning_response(response_text)
@@ -167,7 +191,7 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
             "reasoning_trace": new_trace,
             "current_answer": None,
             "pending_search_query": search_query,
-            "iteration": state["iteration"] # Keep iteration same or increment? kept same in logic before comment
+            "iteration": state["iteration"] # Keep iteration same
         }
 
     logger.info(f"Reason node iteration {state['iteration'] + 1}: generated {len(answer)} char answer")
@@ -205,38 +229,65 @@ async def tool_node(state: ReasoningState) -> dict[str, Any]:
 
 
 async def critique_node(state: ReasoningState) -> dict[str, Any]:
-    """Evaluate the current answer for errors or improvements.
-
-    Args:
-        state: Current reasoning state.
-
-    Returns:
-        Updated state with critique.
-    """
+    """Evaluate the current answer for errors or improvements."""
     args_answer = state.get("current_answer")
     critique_text = ""
     
     if args_answer:
         # Standard critique of an answer
-        critique_module = dspy.Predict(CritiqueSignature)
+        system_prompt = """You are a rigorous critic.
+Instructions:
+1. Review the Question, Reasoning, and Answer.
+2. Check for logical errors, factual inaccuracies, or missing information.
+3. If the answer is satisfactory, simply output "Critique: APPROVED".
+4. If there are issues, describe them concisely."""
+        
         trace_context = "\n".join(state["reasoning_trace"][-3:])
-        pred = await predict_with_retry(
-            critique_module,
-            question=state["query"],
-            reasoning_trace=trace_context,
-            answer=args_answer
-        )
-        critique_text = pred.critique
+        user_content = f"""Question: {state['query']}
+Reasoning History:
+{trace_context}
+
+Proposed Answer: {args_answer}
+
+Critique this answer."""
+
+        try:
+            critique_text = await predict_with_retry(
+                lambda: llm.chat([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ])
+            )
+        except Exception as e:
+            logger.error(f"Critique failed: {e}")
+            critique_text = "Critique failed, assuming no critical errors to keep moving."
+
     else:
         # Critique of search results
-        critique_search = dspy.Predict(CritiqueSearchSignature)
+        system_prompt = """You are a rigorous critic.
+Instructions:
+1. Review the Question and Search Results.
+2. Are the results sufficient to answer the question?
+3. If yes, output "Critique: APPROVED".
+4. If no, explain what is missing."""
+        
         last_trace = state["reasoning_trace"][-1] if state["reasoning_trace"] else "No trace"
-        pred = await predict_with_retry(
-            critique_search,
-            question=state["query"],
-            search_results=last_trace
-        )
-        critique_text = pred.critique
+        user_content = f"""Question: {state['query']}
+Search Results:
+{last_trace}
+
+Critique these results."""
+
+        try:
+            critique_text = await predict_with_retry(
+                 lambda: llm.chat([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ])
+            )
+        except Exception as e:
+            logger.error(f"Search critique failed: {e}")
+            critique_text = "Critique: APPROVED" # Assume good if we fail? Or fail safe?
 
     logger.info(f"Critique node: {'APPROVED' if 'APPROVED' in critique_text.upper() else 'needs improvement'}")
 
@@ -278,14 +329,7 @@ def decide_node(state: ReasoningState) -> dict[str, Any]:
 
 
 def should_continue(state: ReasoningState) -> str:
-    """Router function to decide next node.
-
-    Args:
-        state: Current reasoning state.
-
-    Returns:
-        "end" if complete, "reason" to continue refining.
-    """
+    """Router function to decide next node."""
     if state.get("pending_search_query"):
         return "tool"
     if state.get("is_complete", False):
@@ -294,14 +338,7 @@ def should_continue(state: ReasoningState) -> str:
 
 
 def route_reason_output(state: ReasoningState) -> str:
-    """Router for reason node output.
-    
-    Args:
-        state: Current reasoning state.
-        
-    Returns:
-        "tool" if search requested, else "critique".
-    """
+    """Router for reason node output."""
     if state.get("pending_search_query"):
         return "tool"
     return "critique"

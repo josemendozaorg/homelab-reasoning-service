@@ -132,6 +132,8 @@ queryForm.addEventListener('submit', async (e) => {
         Stop Generation
     `;
     stopBtn.onclick = () => {
+        stopBtn.disabled = true;
+        stopBtn.innerHTML = 'Stopping...';
         controller.abort();
     };
 
