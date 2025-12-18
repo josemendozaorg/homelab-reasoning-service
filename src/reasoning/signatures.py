@@ -13,6 +13,8 @@ class ReasonSignature(dspy.Signature):
     If you initiate a search, do NOT provide an answer yet. Just provide the reasoning and the search tag.
     
     Use <think> tags to show your internal reasoning process.
+
+    IMPORTANT: Always check the 'Context' first. If the answer is already present in the Context (e.g., current date/time), use it directly and DO NOT search.
     """
     
     context = dspy.InputField(desc="Relevant context or history", format=str, prefix="Context:\n")
