@@ -373,6 +373,26 @@ button[type="submit"]:not(:disabled):hover {
     transform: translateY(-1px);
 }
 
+.stop-btn {
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.stop-btn:hover {
+    background: #dc2626;
+    transform: translateY(-1px);
+}
+
 .input-options {
     display: flex;
     justify-content: space-between;
@@ -634,6 +654,7 @@ button[type="submit"]:not(:disabled):hover {
     white-space: pre-wrap;
     border-radius: 0 4px 4px 0;
 }
+
 /* Placeholder Image */
 .placeholder-image {
     width: 260px;
@@ -644,7 +665,15 @@ button[type="submit"]:not(:disabled):hover {
 }
 
 @keyframes float {
-    0% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-    100% { transform: translateY(0px); }
+    0% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
+
+    100% {
+        transform: translateY(0px);
+    }
 }

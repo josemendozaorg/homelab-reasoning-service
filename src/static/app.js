@@ -117,6 +117,33 @@ queryForm.addEventListener('submit', async (e) => {
     queryInput.value = '';
     queryInput.style.height = 'auto';
 
+    // Create AbortController for this request
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    // Create Stop Button UI
+    const stopBtn = document.createElement('button');
+    stopBtn.type = 'button';
+    stopBtn.className = 'stop-btn';
+    stopBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+        Stop Generation
+    `;
+    stopBtn.onclick = () => {
+        controller.abort();
+    };
+
+    // Replace submit button's parent content or append nicely?
+    // Let's hide submit btn and show stop btn in the same container if possible
+    // Or just append it to .input-wrapper or .input-options?
+    // Let's replace the submit button icon/text temporarily or swap them
+    const originalSubmitContent = submitBtn.innerHTML;
+    submitBtn.classList.add('hidden');
+    queryForm.querySelector('.input-options').appendChild(stopBtn);
+
+
     // 1. Append User Message
     const userMsg = createMessageElement('user', query);
     chatContainer.appendChild(userMsg);
@@ -159,7 +186,8 @@ queryForm.addEventListener('submit', async (e) => {
                 query: query,
                 max_iterations: 5,
                 history: chatHistory
-            })
+            }),
+            signal: signal
         });
 
         const reader = response.body.getReader();
@@ -404,10 +432,22 @@ queryForm.addEventListener('submit', async (e) => {
         chatHistory.push({ role: 'assistant', content: answerAccumulator });
 
     } catch (error) {
-        answerBubble.innerHTML = `<div style="color: #ef4444; padding: 1rem; border: 1px solid #ef4444; border-radius: 8px;">Connection Error: ${error.message}. Please check if Ollama is running.</div>`;
-        answerBubble.classList.remove('hidden');
+        if (error.name === 'AbortError') {
+            // User stopped manually
+            const cancelledMsg = document.createElement('div');
+            cancelledMsg.className = 'error-badge';
+            cancelledMsg.style.color = '#fbbf24'; // Amber
+            cancelledMsg.style.marginTop = '1rem';
+            cancelledMsg.textContent = 'Generation stopped by user.';
+            traceContent.appendChild(cancelledMsg);
+        } else {
+            answerBubble.innerHTML = `<div style="color: #ef4444; padding: 1rem; border: 1px solid #ef4444; border-radius: 8px;">Connection Error: ${error.message}. Please check if Ollama is running.</div>`;
+            answerBubble.classList.remove('hidden');
+        }
     } finally {
         submitBtn.disabled = false;
+        submitBtn.classList.remove('hidden');
+        stopBtn.remove();
         queryInput.focus();
     }
 });

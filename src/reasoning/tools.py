@@ -41,7 +41,11 @@ def clean_text(html: str) -> str:
 
 async def process_search_results(query: str, results: list) -> str:
     """Scrape and summarize search results in parallel."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+    }) as client:
         tasks = []
         for res in results:
             url = res.get('href')

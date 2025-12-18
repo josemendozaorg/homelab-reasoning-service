@@ -104,6 +104,11 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
     """
     response_text = ""
     
+    # Get current time context
+    from datetime import datetime
+    current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    time_context = f"Current Date/Time: {current_time}\n"
+
     if state["critique"]:
         # We're refining based on critique
         if state["current_answer"]:
@@ -113,7 +118,7 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
                 refine,
                 question=state["query"],
                 previous_answer=state["current_answer"],
-                critique=state["critique"]
+                critique=f"{time_context}{state['critique']}"
             )
             response_text = pred.improved_response
         else:
@@ -122,7 +127,7 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
             # Actually, the prompt in previous implementation was complex.
             # Let's map it to ReasonSignature but with context.
             reason = dspy.Predict(ReasonSignature)
-            context = f"Search Results Critique: {state['critique']}"
+            context = f"{time_context}Search Results Critique: {state['critique']}"
             pred = await predict_with_retry(
                 reason,
                 question=state["query"],
@@ -133,10 +138,11 @@ async def reason_node(state: ReasoningState) -> dict[str, Any]:
         # Initial reasoning
         reason = dspy.Predict(ReasonSignature)
         history_str = format_history(state.get("chat_history", []))
+        full_context = f"{time_context}{history_str if history_str else 'No previous context.'}"
         pred = await predict_with_retry(
             reason,
             question=state["query"],
-            context=history_str if history_str else "No previous context."
+            context=full_context
         )
         response_text = pred.response
 

@@ -193,8 +193,10 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                                 if trace:
                                     last_item = trace[-1]
                                     logger.info(f"Yielding tool trace: {last_item[:50]}...")
+                                    # Wrap in <think> to ensure it goes to the trace UI
+                                    token_payload = f"<think>\n{last_item}\n</think>"
                                     data = {
-                                        "token": "\n" + last_item + "\n",
+                                        "token": token_payload,
                                         "node": "tool"
                                     }
                                     yield {"data": json.dumps(data)}

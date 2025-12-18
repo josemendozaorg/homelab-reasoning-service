@@ -4,7 +4,7 @@ import time
 import sys
 
 # URL from test_inference.py
-URL = "http://localhost:8000"
+URL = "http://localhost:8080"
 
 def verify_search():
     print(f"Testing reasoning service at {URL}...")
