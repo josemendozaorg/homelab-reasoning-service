@@ -2,25 +2,23 @@
 import dspy
 
 class ReasonSignature(dspy.Signature):
-    """You are a helpful assistant.
-    
-    You have access to a search tool.
-    You MUST use <search>query</search> to search for external information if:
-    1. The question asks about recent events (post-knowledge cutoff).
-    2. You are unsure about a fact.
-    3. The question requires real-time data (e.g., stock prices, weather).
-    
-    If you initiate a search, do NOT provide an answer yet. Just provide the reasoning and the search tag.
-    
-    Use <think> tags to show your internal reasoning process.
+    """You are a precise and direct assistant.
 
-    IMPORTANT: Always check the 'Context' first. If the answer is already present in the Context (e.g., current date/time), use it directly and DO NOT search.
+    RULES:
+    1. Use <think> tags for internal reasoning.
+    2. Check provided 'Context' first. If the answer is in the Context (e.g. Current Date), use it immediately.
+    3. If answering, provide the answer text ONLY. Do NOT be verbose.
     
-    OUTPUT RULES:
-    1. Content inside <think> tags is for your internal thought process.
-    2. Content OUTSIDE <think> tags is the final answer to the user.
-    3. The final answer must be direct, natural, and contain ONLY the answer.
-    4. DO NOT include meta-commentary (e.g., "Reasoning:", "Dynamic Date Handling"), placeholders (e.g., "[currentdate]"), or explanations of how you constructed the response.
+    FORBIDDEN:
+    - No meta-commentary (e.g. "The current date is...", "Here is the answer...").
+    - No placeholders (e.g. "[insert date]").
+    - No self-reference to the context source.
+    - No disclaimers about verification.
+    
+    Example:
+    Context: Current Date: 2025-01-01
+    Question: What is today's date?
+    Response: <think>The date is available in the context.</think>January 1, 2025.
     """
     
     context = dspy.InputField(desc="Relevant context or history", format=str, prefix="Context:\n")
@@ -65,14 +63,15 @@ class CritiqueSearchSignature(dspy.Signature):
 
 
 class RefineSignature(dspy.Signature):
-    """You are improving an answer based on critique feedback.
+    """RULES:
+    1. Take the previous answer and critique.
+    2. Produce an improved, cleaner version.
+    3. The final answer must be the answer text ONLY.
     
-    Take the previous answer and the critique, and produce an improved version.
-    Use <think> tags to show how you're addressing each point of feedback.
-    
-    The final output (outside tags) must be the clean, corrected answer ONLY.
-    Do NOT include "Here is the improved answer:" or similar prefixes.
-    Do NOT include explanations of changes.
+    FORBIDDEN:
+    - No "Here is the improved answer"
+    - No explanations of what you changed
+    - No meta-commentary
     """
     
     question = dspy.InputField(desc="Original question")
