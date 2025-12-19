@@ -47,6 +47,16 @@ queryInput.addEventListener('input', function () {
     this.style.height = (this.scrollHeight) + 'px';
 });
 
+// Enter to submit
+queryInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!submitBtn.disabled) {
+            queryForm.requestSubmit();
+        }
+    }
+});
+
 // Helper: Create message element
 function createMessageElement(role, content = '') {
     const msgDiv = document.createElement('div');
@@ -157,6 +167,29 @@ queryForm.addEventListener('submit', async (e) => {
     const traceContent = assistantMsg.querySelector('.trace-content');
     const answerBubble = assistantMsg.querySelector('.message-bubble');
     const pulse = assistantMsg.querySelector('.thinking-pulse');
+
+    // Helper: Mark trace as finished
+    function setTraceComplete(status = 'success') {
+        traceWrapper.classList.add('complete');
+        const traceHeader = traceWrapper.querySelector('.trace-header');
+        traceHeader.classList.add('complete');
+        const traceTitleSpan = traceHeader.querySelector('.trace-title span:last-child');
+
+        if (status === 'success') {
+            if (traceTitleSpan) traceTitleSpan.textContent = 'Reasoning Completed';
+            pulse.style.background = '#10b981';
+        } else if (status === 'stopped') {
+            if (traceTitleSpan) traceTitleSpan.textContent = 'Reasoning Stopped';
+            pulse.style.background = '#fbbf24'; // Amber
+        } else {
+            if (traceTitleSpan) traceTitleSpan.textContent = 'Reasoning Failed';
+            pulse.style.background = '#ef4444'; // Red
+        }
+
+        pulse.style.opacity = '1';
+        pulse.style.animation = 'none';
+        pulse.style.boxShadow = 'none';
+    }
 
     // Show initial processing state
     const processingStatus = document.createElement('div');
@@ -373,9 +406,8 @@ queryForm.addEventListener('submit', async (e) => {
             }
         }
 
-        // Finalize turn
-        pulse.style.opacity = '0.5';
-        pulse.style.animation = 'none';
+        // Finalize turn (Success)
+        setTraceComplete('success');
 
         // Add Final Answer Badge
         if (answerBubble && !answerBubble.classList.contains('hidden')) {
@@ -391,6 +423,7 @@ queryForm.addEventListener('submit', async (e) => {
     } catch (error) {
         console.error("Stream error:", error);
         if (error.name === 'AbortError') {
+            setTraceComplete('stopped');
             const cancelledMsg = document.createElement('div');
             cancelledMsg.className = 'error-badge';
             cancelledMsg.style.color = '#fbbf24';
@@ -398,6 +431,7 @@ queryForm.addEventListener('submit', async (e) => {
             cancelledMsg.textContent = 'Generation stopped by user.';
             traceContent.appendChild(cancelledMsg);
         } else {
+            setTraceComplete('error');
             answerBubble.innerHTML = `<div style="color: #ef4444; padding: 1rem; border: 1px solid #ef4444; border-radius: 8px;">Connection Error: ${error.message}. Please check if Ollama is running.</div>`;
             answerBubble.classList.remove('hidden');
         }

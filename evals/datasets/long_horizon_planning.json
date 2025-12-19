@@ -1,0 +1,32 @@
+[
+    {
+        "id": "saas-scaling",
+        "query": "Design a 12-month detailed plan to scale a new SaaS product from $0 to $10,000 Monthly Recurring Revenue (MRR). The product is a B2B AI writing assistant for legal firms.",
+        "expected_answer": "A coherent 12-month plan covering: 1. Customer Discovery (Months 1-2), 2. MVP & Beta Testing (Months 3-4), 3. Initial Sales & Feedback Loop (Months 5-6), 4. Marketing Scaling (Months 7-9), 5. Retention & Referrals (Months 10-12). Should include specific tactics like LinkedIn outreach, legal industry partnerships, and product integrations.",
+        "categories": [
+            "business",
+            "planning"
+        ],
+        "difficulty": "hard"
+    },
+    {
+        "id": "superconductor-synthesis",
+        "query": "Critically analyze the recent claims of Room-Temperature Ambient-Pressure Superconductivity (like LK-99). Synthesize the experimental evidence for and against, and propose a definitive experiment to resolve the controversy.",
+        "expected_answer": "Synthesis of: 1. Diamagnetism vs Superconductivity, 2. Meissner effect verification, 3. Resistance measurements, 4. Structural analysis (Cu substitution). Definitive experiment should involve SQUID magnetometry and ultra-pure sample replication under multiple independent labs.",
+        "categories": [
+            "science",
+            "synthesis"
+        ],
+        "difficulty": "hard"
+    },
+    {
+        "id": "wealth-creation-strategy",
+        "query": "How can one realistically make money fast starting with $1000 and 20 hours of work per week? Avoid scams and illegal activities. Provide a risk-managed, 3-stage strategy.",
+        "expected_answer": "A 3-stage strategy: 1. High-margin skill service (e.g. specialized editing), 2. Arbitrage or micro-flipping (buying low, selling high on niche platforms), 3. Scaling via automation or outsourcing. Must include risk mitigation (e.g. stop-loss on inventory, diversified income).",
+        "categories": [
+            "finance",
+            "planning"
+        ],
+        "difficulty": "hard"
+    }
+]

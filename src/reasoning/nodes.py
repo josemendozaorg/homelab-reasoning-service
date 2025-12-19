@@ -6,6 +6,8 @@ import asyncio
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from src.config import settings
+from langchain_core.callbacks import dispatch_custom_event
+from langchain_core.runnables import RunnableConfig
 from .state import ReasoningState
 from .tools import perform_web_search
 from .llm import llm
@@ -40,15 +42,24 @@ def parse_reasoning_response(response: str) -> tuple[str, str]:
     Returns:
         Tuple of (reasoning_trace, answer).
     """
-    # Extract content within <think> tags
-    think_pattern = r"<think>(.*?)</think>"
-    think_matches = re.findall(think_pattern, response, re.DOTALL)
-    reasoning = "\n".join(think_matches) if think_matches else ""
+    # Robust extraction: look for tags but handle cases where opening tag might be stripped by Ollama
+    if "</think>" in response:
+        if "<think>" in response:
+            think_pattern = r"<think>(.*?)</think>"
+            think_matches = re.findall(think_pattern, response, re.DOTALL)
+            reasoning = "\n".join(think_matches) if think_matches else ""
+        else:
+            # Missing <think> but has </think>
+            reasoning = response.split("</think>")[0].strip()
+    else:
+        reasoning = ""
 
     # Everything after </think> is the answer
-    answer_pattern = r"</think>\s*(.*?)$"
-    answer_match = re.search(answer_pattern, response, re.DOTALL)
-    raw_answer = answer_match.group(1).strip() if answer_match else response.strip()
+    if "</think>" in response:
+        answer_match = re.search(r"</think>\s*(.*?)$", response, re.DOTALL)
+        raw_answer = answer_match.group(1).strip() if answer_match else response.strip()
+    else:
+        raw_answer = response.strip()
 
     # If "Final Answer:" is present, extract only what follows
     final_marker = "Final Answer:"
@@ -94,24 +105,33 @@ def format_history(history: list) -> str:
     return "\n".join(formatted)
 
 
-async def reason_node(state: ReasoningState) -> dict[str, Any]:
+async def reason_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
     """Generate reasoning using direct prompts."""
     response_text = ""
     
     # Get current time context
     from datetime import datetime
-    current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    time_context = f"Current Date/Time: {current_time}\n"
+    now = datetime.now() # Use local time for better user alignment
+    current_time = now.strftime("%Y-%m-%d %H:%M:%S")
+    today_date = now.strftime("%Y-%m-%d")
+    time_context = f"TODAY'S DATE: {today_date}\nCURRENT TIME: {current_time}\n"
 
     history_str = format_history(state.get("chat_history", []))
 
+    # Shared Search Instructions
+    search_instructions = f"""
+    TODAY'S DATE: {today_date}
+    KNOWLEDGE CUTOFF: OUT OF DATE.
+    
+    SEARCH TRIGGER: If the question requires REAL-TIME data (prices, weather, news, current events), you MUST use the <search>Query</search> tool immediately.
+    
+    EXCEPTION: If you only need today's date or time (already provided below), do NOT search for it. Use the provided context."""
+
     if state["critique"] and state["current_answer"]:
         # REFINEMENT MODE
-        system_prompt = """You are a helpful assistant.
-Instructions:
-1. Use <think> tags for internal reasoning.
-2. Refine your previous answer based on the Feedback.
-3. Provide the improved answer text ONLY. Start with 'Final Answer:'."""
+        system_prompt = f"""{search_instructions}
+        
+        You are a helpful assistant. Use <think> tags to reason, then refine the previous answer based on Feedback. Start Final Answer with 'Final Answer:'."""
         
         user_content = f"""{time_context}
 Previous Question: {state['query']}
@@ -120,60 +140,47 @@ Feedback: {state['critique']}
 
 Please provide the corrected answer."""
         
-        try:
-            response_text = await predict_with_retry(
-                lambda: llm.chat([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ])
-            )
-        except Exception as e:
-            logger.error(f"Refinement failed: {e}")
-            raise
-
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
     elif state["critique"]:
          # CRITIQUE SEARCH RESULTS MODE (or just general critique retry)
-         # Treated as a new reasoning attempts with added context
-        system_prompt = """You are a helpful assistant.
-Instructions:
-1. Use <think> tags for internal reasoning.
-2. TRUST THE Context.
-3. Provide the answer text ONLY. Start with 'Final Answer:'."""
+        system_prompt = f"""{search_instructions}
+        
+        You are a helpful assistant. Use <think> tags for internal reasoning. TRUST THE Context and search results provided. Start Final Answer with 'Final Answer:'."""
         
         context_block = f"{time_context}Search Results Critique/Feedback: {state['critique']}"
         user_content = f"{context_block}\n\nQuestion: {state['query']}"
-
-        try:
-            response_text = await predict_with_retry(
-                lambda: llm.chat([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ])
-            )
-        except Exception as e:
-            logger.error(f"Reasoning retry failed: {e}")
-            raise
-
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
     else:
         # INITIAL REASONING MODE
-        system_prompt = """You are a helpful assistant.
-Instructions:
-1. Use <think> tags for internal reasoning.
-2. TRUST THE Context. It is the absolute source of truth.
-3. Provide the answer text ONLY. Start with 'Final Answer:'."""
+        system_prompt = f"""{search_instructions}
+        
+        You are a helpful assistant. Use <think> tags for internal reasoning. TRUST THE Context as the absolute source of truth. Start Final Answer with 'Final Answer:'."""
         
         user_content = f"{time_context}{history_str if history_str else 'No previous context.'}\n\nQuestion: {state['query']}"
-        
-        try:
-            response_text = await predict_with_retry(
-                lambda: llm.chat([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ])
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+
+    try:
+        # Stream the response and dispatch tokens
+        async for token in llm.chat_stream(messages):
+            response_text += token
+            # Dispatch token as custom event
+            dispatch_custom_event(
+                "token", 
+                {"token": token, "node": "reason"},
+                config=config
             )
-        except Exception as e:
-            logger.error(f"Initial reasoning failed: {e}")
-            raise
+    except Exception as e:
+        logger.error(f"Reasoning iteration failed: {e}")
+        raise
 
     # Parse output
     reasoning, answer = parse_reasoning_response(response_text)
@@ -228,7 +235,7 @@ async def tool_node(state: ReasoningState) -> dict[str, Any]:
     }
 
 
-async def critique_node(state: ReasoningState) -> dict[str, Any]:
+async def critique_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
     """Evaluate the current answer for errors or improvements."""
     args_answer = state.get("current_answer")
     critique_text = ""
@@ -250,17 +257,10 @@ Reasoning History:
 Proposed Answer: {args_answer}
 
 Critique this answer."""
-
-        try:
-            critique_text = await predict_with_retry(
-                lambda: llm.chat([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ])
-            )
-        except Exception as e:
-            logger.error(f"Critique failed: {e}")
-            critique_text = "Critique failed, assuming no critical errors to keep moving."
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
 
     else:
         # Critique of search results
@@ -277,17 +277,23 @@ Search Results:
 {last_trace}
 
 Critique these results."""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
 
-        try:
-            critique_text = await predict_with_retry(
-                 lambda: llm.chat([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ])
+    try:
+        async for token in llm.chat_stream(messages):
+            critique_text += token
+            # Dispatch token as custom event
+            dispatch_custom_event(
+                "token", 
+                {"token": token, "node": "critique"},
+                config=config
             )
-        except Exception as e:
-            logger.error(f"Search critique failed: {e}")
-            critique_text = "Critique: APPROVED" # Assume good if we fail? Or fail safe?
+    except Exception as e:
+        logger.error(f"Critique failed: {e}")
+        critique_text = "Critique failed, assuming no critical errors to keep moving."
 
     logger.info(f"Critique node: {'APPROVED' if 'APPROVED' in critique_text.upper() else 'needs improvement'}")
 

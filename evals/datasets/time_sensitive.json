@@ -1,0 +1,20 @@
+[
+    {
+        "id": "ts_bitcoin",
+        "query": "What is the price of Bitcoin today?",
+        "expected_answer": "Real-time search triggered",
+        "description": "Checks if the model triggers a search for real-time asset prices."
+    },
+    {
+        "id": "ts_news",
+        "query": "What are the top 3 headlines in the news right now?",
+        "expected_answer": "Real-time search triggered",
+        "description": "Checks for date-awareness and news searching."
+    },
+    {
+        "id": "ts_weather",
+        "query": "What is the weather like in New York today?",
+        "expected_answer": "Real-time search triggered",
+        "description": "Checks for location-based real-time data search."
+    }
+]

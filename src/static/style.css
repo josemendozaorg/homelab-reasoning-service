@@ -233,6 +233,11 @@ body {
     overflow: hidden;
     max-width: 100%;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transition: border-color var(--transition-smooth);
+}
+
+.trace-wrapper.complete {
+    border-color: rgba(16, 185, 129, 0.3);
 }
 
 .trace-header {
@@ -263,6 +268,16 @@ body {
     color: var(--nb-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+}
+
+.trace-header.complete .trace-title {
+    color: #10b981;
+}
+
+.trace-header.complete .thinking-pulse {
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+    animation: none;
 }
 
 .trace-content {

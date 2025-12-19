@@ -1,0 +1,17 @@
+{
+  "timestamp": "20251218_215848",
+  "dataset": "evals/datasets/single_test.json",
+  "results": [
+    {
+      "status": "success",
+      "duration": 54.174091815948486,
+      "iterations": 2,
+      "final_answer": "Both weigh the same\u20141 kilogram each.",
+      "is_approved": true,
+      "reasoning_trace": [],
+      "id": "kilogram-test",
+      "query": "Which is heavier: a kilogram of feathers or a kilogram of steel?",
+      "expected_answer": "They weigh the same (one kilogram)."
+    }
+  ]
+}

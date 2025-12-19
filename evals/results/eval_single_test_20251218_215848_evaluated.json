@@ -1,0 +1,31 @@
+{
+  "timestamp": "20251218_215848",
+  "dataset": "evals/datasets/single_test.json",
+  "results": [
+    {
+      "status": "success",
+      "duration": 54.174091815948486,
+      "iterations": 2,
+      "final_answer": "Both weigh the same\u20141 kilogram each.",
+      "is_approved": true,
+      "reasoning_trace": [],
+      "id": "kilogram-test",
+      "query": "Which is heavier: a kilogram of feathers or a kilogram of steel?",
+      "expected_answer": "They weigh the same (one kilogram).",
+      "eval": {
+        "accuracy_score": 10,
+        "is_correct": true,
+        "explanation": "Both answers correctly state that each object weighs one kilogram, making them equal in weight."
+      }
+    }
+  ],
+  "evaluated_at": "eval_single_test_20251218_215848.json",
+  "summary": {
+    "total_items": 1,
+    "correct_items": 1,
+    "accuracy": 100.0,
+    "average_score": 10.0,
+    "average_latency": 54.174091815948486,
+    "average_iterations": 2.0
+  }
+}

@@ -137,7 +137,7 @@ async def reason_stream(request: ReasoningRequest, req: Request):
         
         async def producer():
             try:
-                async for event in graph.astream_events(initial_state, version="v1"):
+                async for event in graph.astream_events(initial_state, version="v2"):
                     await queue.put({"type": "event", "payload": event})
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
@@ -169,63 +169,42 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                 elif msg_type == "event":
                     event = item["payload"]
                     event_type = event["event"]
-                    # logger.info(f"Graph event: {event_type}")
                     
-                    # We are interested in chat model stream events (if using LangChain/native streaming)
-                    # BUT since we use DSPy (non-streaming node), we rely on node output
-                    if event_type == "on_chain_end":
-                         # Check for tool node output
+                    # 1. Handle Token Streaming (Custom Events)
+                    if event_type == "on_custom_event":
                         node_name = event.get("metadata", {}).get("langgraph_node")
-                        logger.info(f"Chain end for node: {node_name}")
-                        
-                        output = event["data"].get("output")
-                        # logger.info(f"Output for {node_name}: {output}") # Full output
-                        if output:
-                             logger.info(f"Output keys: {output.keys() if isinstance(output, dict) else 'Not a dict'}")
-                        else:
-                             logger.info("Output is None/Empty")
+                        data = event.get("data", {})
+                        if data.get("token"):
+                            yield {"data": json.dumps({
+                                "token": data["token"],
+                                "node": data.get("node", node_name)
+                            })}
+                        continue
 
+                    # 2. Handle Node Completion (State Updates)
+                    if event_type == "on_chain_end":
+                        node_name = event.get("metadata", {}).get("langgraph_node")
+                        output = event["data"].get("output")
+                        
+                        if not output or not isinstance(output, dict):
+                            continue
+
+                        # Tool results are still emitted at the end of the node
                         if node_name == "tool":
-                            # Tool node returns a dict state update. We want the last item in reasoning_trace
-                            output = event["data"]["output"]
-                            if output and "reasoning_trace" in output:
+                            if "reasoning_trace" in output:
                                 trace = output["reasoning_trace"]
                                 if trace:
                                     last_item = trace[-1]
-                                    logger.info(f"Yielding tool trace: {last_item[:50]}...")
                                     # Wrap in <think> to ensure it goes to the trace UI
                                     token_payload = f"<think>\n{last_item}\n</think>"
-                                    data = {
+                                    yield {"data": json.dumps({
                                         "token": token_payload,
                                         "node": "tool"
-                                    }
-                                    yield {"data": json.dumps(data)}
-                        elif node_name == "reason" or node_name == "critique":
-                             output = event["data"]["output"]
-                             if output and isinstance(output, dict):
-                                 # 1. Emit Answer if present
-                                 current_answer = output.get("current_answer")
-                                 if current_answer:
-                                     logger.info(f"Yielding answer: {str(current_answer)[:50]}...")
-                                     data = {
-                                         "token": str(current_answer),
-                                         "node": node_name
-                                     }
-                                     yield {"data": json.dumps(data)}
-
-                                 # 2. Emit Reasoning Trace if present
-                                 if "reasoning_trace" in output:
-                                    trace = output["reasoning_trace"]
-                                    if trace:
-                                       last_item = trace[-1]
-                                       # Wrap in <think> so app.js routes it to trace bubble
-                                       token_payload = f"<think>\n{str(last_item)}\n</think>"
-                                       logger.info(f"Yielding trace: {token_payload[:50]}...")
-                                       data = {
-                                           "token": token_payload,
-                                           "node": node_name
-                                       }
-                                       yield {"data": json.dumps(data)}
+                                    })}
+                        
+                        # We no longer emit current_answer here because tokens are already streamed in real-time
+                        # via on_custom_event. Emitting it here causes duplication in the UI.
+                        pass
 
             except asyncio.TimeoutError:
                 # Send keep-alive ping
