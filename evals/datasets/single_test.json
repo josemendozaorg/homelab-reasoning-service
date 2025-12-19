@@ -1,0 +1,11 @@
+[
+    {
+        "id": "kilogram-test",
+        "query": "Which is heavier: a kilogram of feathers or a kilogram of steel?",
+        "expected_answer": "They weigh the same (one kilogram).",
+        "categories": [
+            "logic"
+        ],
+        "difficulty": "easy"
+    }
+]

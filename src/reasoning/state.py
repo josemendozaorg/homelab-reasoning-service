@@ -22,6 +22,7 @@ class ReasoningState(TypedDict):
     is_complete: bool
     final_answer: Optional[str]
     chat_history: list[dict]
+    pending_search_query: Optional[str]
 
 
 def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState:
@@ -42,5 +43,6 @@ def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState
         iteration=0,
         is_complete=False,
         final_answer=None,
-        chat_history=history
+        chat_history=history,
+        pending_search_query=None
     )

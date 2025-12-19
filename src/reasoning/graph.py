@@ -3,7 +3,7 @@ import logging
 from langgraph.graph import StateGraph, END
 
 from .state import ReasoningState
-from .nodes import reason_node, critique_node, decide_node, should_continue
+from .nodes import reason_node, critique_node, decide_node, should_continue, tool_node, route_reason_output
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +13,12 @@ def create_reasoning_graph() -> StateGraph:
 
     The graph implements a Self-Correction loop:
 
-    ENTRY → REASON → CRITIQUE → DECIDE ─┬─→ END (if APPROVED or max_iterations)
-                                 ↑      │
-                                 └──────┴─→ REASON (loop back to refine)
+    ENTRY → REASON ─┬─→ CRITIQUE → DECIDE ─┬─→ END
+                    │                      │
+                    └─→ TOOL ──────────────┘
+    
+    Returns:
+
 
     Returns:
         Compiled LangGraph StateGraph ready for invocation.
@@ -27,13 +30,27 @@ def create_reasoning_graph() -> StateGraph:
     workflow.add_node("reason", reason_node)
     workflow.add_node("critique", critique_node)
     workflow.add_node("decide", decide_node)
+    workflow.add_node("tool", tool_node)
 
     # Set entry point
     workflow.set_entry_point("reason")
 
     # Add edges
-    workflow.add_edge("reason", "critique")
+    # Remove fixed edge from reason
+    # workflow.add_edge("reason", "critique") # Changed to conditional
     workflow.add_edge("critique", "decide")
+    workflow.add_edge("tool", "critique")
+
+    # Add conditional edge from reason
+    workflow.add_conditional_edges(
+        "reason",
+        route_reason_output,
+        {
+            "tool": "tool",
+            "critique": "critique"
+        }
+    )
+
 
     # Add conditional edge from decide
     workflow.add_conditional_edges(
@@ -41,7 +58,8 @@ def create_reasoning_graph() -> StateGraph:
         should_continue,
         {
             "end": END,
-            "reason": "reason"
+            "reason": "reason",
+            "tool": "tool"
         }
     )
 

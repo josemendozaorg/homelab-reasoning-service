@@ -34,6 +34,7 @@
                 <div class="brand-text">
                     <h1>Reasoning Service</h1>
                     <span class="version-badge" id="appVersion">v0.0.0</span>
+                    <span class="hash-badge" title="Commit Hash">{{COMMIT_HASH}}</span>
                 </div>
             </div>
 
@@ -50,13 +51,8 @@
             <div class="chat-messages" id="chatContainer">
                 <div class="empty-state" id="placeholder">
                     <div class="empty-state-content">
-                        <div class="icon-large">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="1.5">
-                                <path
-                                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3M3.343 15.657l-.707.707m16.555-4.996l-.707-.707M15.657 3.343l-.707.707M12 21a9 9 0 110-18 9 9 0 010 18z" />
-                            </svg>
-                        </div>
+                        <img src="/static/assets/reasoning_placeholder.png" alt="Reasoning AI"
+                            class="placeholder-image">
                         <h2>How can I help you reason?</h2>
                         <p>Ask complex questions. I'll think step-by-step.</p>
                     </div>

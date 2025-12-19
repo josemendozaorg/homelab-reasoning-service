@@ -12,12 +12,14 @@ class Settings(BaseSettings):
     # Reasoning Configuration
     max_reasoning_iterations: int = 5
     max_context_tokens: int = 16000
-    temperature: float = 0.7
+    temperature: float = 0.2
 
     # API Configuration
     api_host: str = "0.0.0.0"
     # Application Version
+    # Application Version
     app_version: str = "0.2.0"
+    commit_hash: str = "local"
 
     class Config:
         env_prefix = "REASONING_"
@@ -25,3 +27,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+

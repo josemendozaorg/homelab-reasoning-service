@@ -1,0 +1,85 @@
+{
+  "timestamp": "20251219_001544",
+  "dataset": "evals/datasets/time_sensitive.json",
+  "results": [
+    {
+      "status": "success",
+      "duration": 23.900303602218628,
+      "iterations": 1,
+      "final_answer": "The price of Bitcoin on 2025-12-18 is [insert current price].",
+      "is_approved": true,
+      "reasoning_trace": [],
+      "id": "ts_bitcoin",
+      "query": "What is the price of Bitcoin today?",
+      "expected_answer": "Real-time search triggered",
+      "eval": {
+        "accuracy_score": 1,
+        "depth_score": 0,
+        "feasibility_score": 2,
+        "reasoning_quality": 0,
+        "is_correct": false,
+        "explanation": "The actual answer incorrectly provides a future date without real-time data, failing accuracy and depth. No reasoning is shown.",
+        "total_reasoning_words": 0,
+        "answer_words": 10,
+        "reasoning_density": 0.0,
+        "iteration_distribution": []
+      }
+    },
+    {
+      "status": "success",
+      "duration": 24.818653106689453,
+      "iterations": 1,
+      "final_answer": "1. \"Major Breakthrough in Renewable Energy Technology Unveiled\" - Source: GlobalTech News  \n2. \"International Summit Addresses Climate Change Mitigation Strategies\" - Source: World Environment Report  \n3. \"Global Markets Show Strong Recovery Following Economic Policy Announcements\" - Source: FinancialDaily",
+      "is_approved": true,
+      "reasoning_trace": [],
+      "id": "ts_news",
+      "query": "What are the top 3 headlines in the news right now?",
+      "expected_answer": "Real-time search triggered",
+      "eval": {
+        "accuracy_score": 6,
+        "depth_score": 5,
+        "feasibility_score": 8,
+        "reasoning_quality": 4,
+        "is_correct": false,
+        "explanation": "The actual answer provided plausible headlines but lacks real-time verification. It demonstrates feasibility and structure but lacks depth and reasoning justification.",
+        "total_reasoning_words": 0,
+        "answer_words": 38,
+        "reasoning_density": 0.0,
+        "iteration_distribution": []
+      }
+    },
+    {
+      "status": "success",
+      "duration": 12.468879222869873,
+      "iterations": 1,
+      "final_answer": "The weather in New York today is [insert weather details from search].",
+      "is_approved": true,
+      "reasoning_trace": [],
+      "id": "ts_weather",
+      "query": "What is the weather like in New York today?",
+      "expected_answer": "Real-time search triggered",
+      "eval": {
+        "accuracy_score": 8,
+        "depth_score": 3,
+        "feasibility_score": 9,
+        "reasoning_quality": 4,
+        "is_correct": true,
+        "explanation": "The response correctly identifies the need for real-time data but lacks depth and reasoning quality. It is accurate in approach but doesn't demonstrate a detailed thought process.",
+        "total_reasoning_words": 0,
+        "answer_words": 12,
+        "reasoning_density": 0.0,
+        "iteration_distribution": []
+      }
+    }
+  ],
+  "evaluated_at": "2025-12-19T00:16:20.682535",
+  "summary": {
+    "total_items": 3,
+    "correct_items": 1,
+    "accuracy": 33.33333333333333,
+    "average_score": 5.0,
+    "average_latency": 20.39594531059265,
+    "average_iterations": 1.0,
+    "average_reasoning_density": 0.0
+  }
+}

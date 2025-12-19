@@ -3,6 +3,8 @@ from sse_starlette.sse import EventSourceResponse
 import json
 import logging
 import time
+import asyncio
+
 
 from src.config import settings
 from src.llm import OllamaClient
@@ -131,21 +133,89 @@ async def reason_stream(request: ReasoningRequest, req: Request):
         initial_state = create_initial_state(request.query, request.history)
         graph = get_reasoning_graph()
         
-        # Configure the runnable to stream events
-        async for event in graph.astream_events(initial_state, version="v1"):
-            # We are interested in chat model stream events
-            if event["event"] == "on_chat_model_stream":
-                # Check if this event comes from the 'reason' node or 'critique' node
+        queue = asyncio.Queue()
+        
+        async def producer():
+            try:
+                async for event in graph.astream_events(initial_state, version="v2"):
+                    await queue.put({"type": "event", "payload": event})
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                await queue.put({"type": "error", "payload": str(e)})
+            finally:
+                await queue.put({"type": "done"})
+
+        # Start producer task
+        producer_task = asyncio.create_task(producer())
+        
+        while True:
+            try:
+                # Wait for event with timeout for keep-alive
+                item = await asyncio.wait_for(queue.get(), timeout=15.0)
                 
-                chunk = event["data"]["chunk"]
-                if hasattr(chunk, "content") and chunk.content:
-                    data = {
-                        "token": chunk.content,
-                        "node": event.get("metadata", {}).get("langgraph_node", "unknown")
-                    }
-                    yield {"data": json.dumps(data)}
+                msg_type = item.get("type")
+                # logger.info(f"Queue item: {msg_type}") # too noisy
+                
+                if msg_type == "done":
+                    logger.info("Stream done signal received")
+                    yield {"event": "done", "data": "Reasoning complete"}
+                    break
+                
+                elif msg_type == "error":
+                    logger.error(f"Stream error signal: {item['payload']}")
+                    yield {"event": "error", "data": item["payload"]}
+                    break
+                
+                elif msg_type == "event":
+                    event = item["payload"]
+                    event_type = event["event"]
                     
-        # Send end event
-        yield {"event": "done", "data": "Reasoning complete"}
+                    # 1. Handle Token Streaming (Custom Events)
+                    if event_type == "on_custom_event":
+                        node_name = event.get("metadata", {}).get("langgraph_node")
+                        data = event.get("data", {})
+                        if data.get("token"):
+                            yield {"data": json.dumps({
+                                "token": data["token"],
+                                "node": data.get("node", node_name)
+                            })}
+                        continue
+
+                    # 2. Handle Node Completion (State Updates)
+                    if event_type == "on_chain_end":
+                        node_name = event.get("metadata", {}).get("langgraph_node")
+                        output = event["data"].get("output")
+                        
+                        if not output or not isinstance(output, dict):
+                            continue
+
+                        # Tool results are still emitted at the end of the node
+                        if node_name == "tool":
+                            if "reasoning_trace" in output:
+                                trace = output["reasoning_trace"]
+                                if trace:
+                                    last_item = trace[-1]
+                                    # Wrap in <think> to ensure it goes to the trace UI
+                                    token_payload = f"<think>\n{last_item}\n</think>"
+                                    yield {"data": json.dumps({
+                                        "token": token_payload,
+                                        "node": "tool"
+                                    })}
+                        
+                        # We no longer emit current_answer here because tokens are already streamed in real-time
+                        # via on_custom_event. Emitting it here causes duplication in the UI.
+                        pass
+
+            except asyncio.TimeoutError:
+                # Send keep-alive ping
+                yield {"event": "ping", "data": ""}
+
+        # Clean up
+        if not producer_task.done():
+            producer_task.cancel()
+            try:
+                await producer_task
+            except asyncio.CancelledError:
+                pass
 
     return EventSourceResponse(event_generator())

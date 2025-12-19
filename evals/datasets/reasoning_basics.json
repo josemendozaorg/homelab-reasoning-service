@@ -1,0 +1,30 @@
+[
+  {
+    "id": "strawberry-count",
+    "query": "How many r's are in 'Strawberry'?",
+    "expected_answer": "There are 3 r's in 'Strawberry' (St**r**awbe**rr**y).",
+    "categories": ["logic", "counting"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "sister-age",
+    "query": "When I was 6, my sister was half my age. Now I am 70. How old is my sister?",
+    "expected_answer": "My sister is 67. (If she was half of 6, she was 3. The age difference is 3 years. 70 - 3 = 67).",
+    "categories": ["logic", "math"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "heavy-kilogram",
+    "query": "Which is heavier: a kilogram of feathers or a kilogram of steel?",
+    "expected_answer": "They weigh the same (one kilogram).",
+    "categories": ["logic", "trick"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "hallucination-check",
+    "query": "Who is the current President of the Republic of Veridia?",
+    "expected_answer": "Veridia is a fictional country, so there is no real President.",
+    "categories": ["knowledge", "fictional"],
+    "difficulty": "medium"
+  }
+]
