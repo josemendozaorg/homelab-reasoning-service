@@ -5,6 +5,8 @@ import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
+from langchain_core.runnables import RunnableConfig
+from langchain_core.callbacks import adispatch_custom_event
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,12 @@ async def fetch_url(client: httpx.AsyncClient, url: str) -> str:
         response = await client.get(url, timeout=10.0, follow_redirects=True)
         response.raise_for_status()
         return response.text
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 403:
+             logger.warning(f"Access denied (403) for {url}. Skipping.")
+             return "Error: Access Denied (403)" # Be explicit so LLM knows
+        logger.warning(f"Failed to fetch {url}: {e}")
+        return ""
     except Exception as e:
         logger.warning(f"Failed to fetch {url}: {e}")
         return ""
@@ -37,7 +45,7 @@ def clean_text(html: str) -> str:
     
     return text[:10000]  # Limit context per page
 
-async def process_search_results(query: str, results: list) -> str:
+async def process_search_results(query: str, results: list, config: RunnableConfig = None) -> str:
     """Scrape and summarize search results in parallel."""
     async with httpx.AsyncClient(headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -53,6 +61,13 @@ async def process_search_results(query: str, results: list) -> str:
         # Parallel fetch
         pages_content = await asyncio.gather(*tasks)
 
+    if config:
+        await adispatch_custom_event(
+            "tool_io",
+            {"type": "scraping_done", "url_count": len(pages_content)},
+            config=config
+        )
+
     
     # 2. Summarize each page
     summaries = []
@@ -64,6 +79,14 @@ async def process_search_results(query: str, results: list) -> str:
         res = results[i]
         title = res.get('title', 'No Title')
         url = res.get('href', '#')
+        
+        # Notify scraping progress
+        if config:
+            await adispatch_custom_event(
+                "tool_io",
+                {"type": "summarizing_page", "url": url, "title": title},
+                config=config
+            )
         
         if not content:
             summaries.append(f"Source: {title} ({url})\nFailed to retrieve content.\n")
@@ -82,7 +105,7 @@ async def process_search_results(query: str, results: list) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg}
             ])
-            if "Irrelevant" not in summary:
+            if summary and "Irrelevant" not in summary:
                 summaries.append(f"Source: {title} ({url})\nSummary: {summary}\n")
         except Exception as e:
             logger.warning(f"Summarization failed for source {i}: {e}")
@@ -93,17 +116,30 @@ from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_
 
 # ... imports ...
 
-async def perform_web_search(query: str, max_results: int = 10) -> str:
+async def perform_web_search(query: str, max_results: int = 10, config: RunnableConfig = None) -> str:
     """Perform a deep web search: search -> scrape -> summarize.
     
     Args:
         query: The search query string.
         max_results: Maximum number of links to scrape (default 10).
         
+    args:
+        query: The search query string.
+        max_results: Maximum number of links to scrape (default 10).
+        config: RunnableConfig for event dispatch.
+        
     Returns:
         Aggregated summaries of the scraped content.
     """
     logger.info(f"Performing deep web search for: {query}")
+    
+    # Notify start of search
+    if config:
+        await adispatch_custom_event(
+            "tool_io", 
+            {"type": "search_start", "query": query}, 
+            config=config
+        )
     
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(3),
@@ -126,10 +162,22 @@ async def perform_web_search(query: str, max_results: int = 10) -> str:
                 results = await asyncio.to_thread(run_search)
                 
                 if not results:
+                    await adispatch_custom_event(
+                        "tool_io",
+                        {"type": "search_result", "query": query, "count": 0},
+                        config=config
+                    )
                     return "No results found."
+
+                # Notify success
+                await adispatch_custom_event(
+                    "tool_io",
+                    {"type": "search_result", "query": query, "count": len(results), "results_snippet": results[:3]},
+                    config=config
+                )
                     
                 # Async part: scraping
-                aggregated_summary = await process_search_results(query, results)
+                aggregated_summary = await process_search_results(query, results, config)
                 
                 return aggregated_summary
                 

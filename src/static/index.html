@@ -21,6 +21,18 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="/static/style.css?v={{STYLE_VERSION}}">
+
+    <!-- MathJax -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']]
+            }
+        };
+    </script>
+    <script type="text/javascript" id="MathJax-script" async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+        </script>
 </head>
 
 <body>
@@ -39,6 +51,13 @@
             </div>
 
             <div class="header-controls">
+                <label class="dev-mode-toggle" title="Toggle Developer Mode">
+                    <input type="checkbox" id="devModeToggle">
+                    <div class="toggle-track">
+                        <div class="toggle-thumb"></div>
+                    </div>
+                    <span>Dev Mode</span>
+                </label>
                 <div class="status-badge" title="Service Status">
                     <span class="status-dot"></span>
                     <span>Online</span>
@@ -48,6 +67,15 @@
 
         <!-- Main Chat Area -->
         <main class="chat-viewport">
+            <!-- Developer Mode Panel -->
+            <div id="debugPanel" class="debug-panel hidden">
+                <div class="debug-header">
+                    <span>Debug Console</span>
+                    <span style="font-size: 0.65rem; color: #64748b;">Live Events</span>
+                </div>
+                <div class="debug-content" id="debugContent"></div>
+            </div>
+
             <div class="chat-messages" id="chatContainer">
                 <div class="empty-state" id="placeholder">
                     <div class="empty-state-content">
