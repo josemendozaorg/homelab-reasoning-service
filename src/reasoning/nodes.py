@@ -766,6 +766,7 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     - You generally do NOT know current prices, stock values, weather, or news events after your training cut-off.
     - If the user asks for ANY real-time info (e.g. "price of X", "weather in Y", "latest news"), you MUST use <search>Query</search> IMMEDIATELY.
     - DO NOT HALLUCINATE or guess values.
+    - LOCATION AWARENESS: Be very careful with location names. Ensure you are searching for the correct city/country (e.g. "Bytow, Poland" is NOT "Baytown, Texas").
     
     INSTRUCTIONS:
     1. Continue the reasoning from the last step.
@@ -801,6 +802,10 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
             end_tag = "</search>"
             if end_tag in response_text:
                 end_idx = response_text.find(end_tag) + len(end_tag)
+                # FORCE TRUNCATION: Ignore anything after </search>
+                # Log if we cut off a significant amount
+                if len(response_text) - end_idx > 20: 
+                     logger.warning(f"Truncated hallucinated content after search tag: {len(response_text) - end_idx} chars")
                 response_text = response_text[:end_idx]
                 
             logger.info(f"MCTS Expand: Detected search for {search_query} (Truncated)")
@@ -901,6 +906,14 @@ async def mcts_backprop_node(state: ReasoningState, config: RunnableConfig) -> d
         new_budget = 0
         
     logger.info(f"MCTS Backprop: Budget now {new_budget}")
+    
+    # Emit token for UI visibility
+    backprop_text = f"[MCTS Backprop] Updated Value. Budget Remaining: {new_budget}\n"
+    await adispatch_custom_event(
+        "token", 
+        {"token": backprop_text, "node": "mcts_backprop"},
+        config=config
+    )
     
     return {"search_budget": new_budget}
 

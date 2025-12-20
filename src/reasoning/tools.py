@@ -16,6 +16,12 @@ async def fetch_url(client: httpx.AsyncClient, url: str) -> str:
         response = await client.get(url, timeout=10.0, follow_redirects=True)
         response.raise_for_status()
         return response.text
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 403:
+             logger.warning(f"Access denied (403) for {url}. Skipping.")
+             return "Error: Access Denied (403)" # Be explicit so LLM knows
+        logger.warning(f"Failed to fetch {url}: {e}")
+        return ""
     except Exception as e:
         logger.warning(f"Failed to fetch {url}: {e}")
         return ""
