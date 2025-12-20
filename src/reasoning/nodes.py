@@ -1,7 +1,9 @@
 """Node implementations for the reasoning graph."""
 import re
 import logging
-from typing import Any
+import asyncio # Added for parallelization
+from typing import Any, List # Added List
+import json # Added for JSON reflection
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from src.config import settings
@@ -755,6 +757,9 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     today_date = now.strftime("%Y-%m-%d")
     local_timezone = now.astimezone().tzname() or "Local"
     
+    today_date = now.strftime("%Y-%m-%d")
+    local_timezone = now.astimezone().tzname() or "Local"
+    
     search_instructions = f"""
     TODAY'S DATE: {today_date}
     CURRENT TIME: {current_time}
@@ -762,78 +767,106 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     
     You are a deep reasoning assistant participating in a Monte Carlo Tree Search.
     
-    CRITICAL REAL-TIME DATA RULE:
-    - You generally do NOT know current prices, stock values, weather, or news events after your training cut-off.
-    - If the user asks for ANY real-time info (e.g. "price of X", "weather in Y", "latest news"), you MUST use <search>Query</search> IMMEDIATELY.
-    - DO NOT HALLUCINATE or guess values.
-    - LOCATION AWARENESS: Be very careful with location names. Ensure you are searching for the correct city/country (e.g. "Bytow, Poland" is NOT "Baytown, Texas").
+    ### WHEN TO SEARCH:
+    - **Verify Facts**: If unsure about specific names, dates, or recent events.
+    - **Real-Time Info**: For news, weather, stock prices, or events AFTER 2023.
+    - **Specifics**: When the user asks for "latest", "current", or specific details you don't know.
+    - **DO NOT SEARCH**: For common knowledge, simple math, or if you already have the info in context.
+
+    ### HOW TO SEARCH:
+    - **Keywords Only**: Use precise keywords, not chatty sentences. 
+      - GOOD: "current time Paris", "population Tokyo 2024", "latest events Bytow Poland 2025"
+      - BAD: "What is the time in Paris?", "I need to look up..."
+    - **Location Aware**: Always include the country/state to avoid ambiguity (e.g. "Bytow, Poland" not just "Bytow").
     
-    INSTRUCTIONS:
-    1. Continue the reasoning from the last step.
-    2. Use <think> tags for internal reasoning.
-    3. If you lack information, output <search>Your Query Here</search>.
-    4. If you have enough info, provide the final answer.
+    ### FORMAT:
+    - Output <search>Your Query Here</search> to trigger a search.
+    - If no search is needed, just continue reasoning with <think>.
     """
     
     messages = [{"role": "system", "content": search_instructions}] + path
     
-    # We no longer need to manually inject "trace[-1]" because tool_node now
-    # explicitly appends the search results to the 'content' of the selected_node.
-    # So 'path' above ALREADY includes the search results if they exist.
+    # PARALLEL EXPANSION (LATS)
+    num_candidates = 3
+    logger.info(f"MCTS Expand: Generating {num_candidates} parallel candidates...")
     
-    response_text = ""
+    # We use llm.chat (non-streaming) for parallel, as mixing streaming with gather is complex
+    # Create N tasks
+    tasks = [llm.chat(messages, temperature=0.7) for _ in range(num_candidates)]
     
     try:
-        async for token in llm.chat_stream(messages, temperature=0.7):
-            response_text += token
-            await adispatch_custom_event(
-                "token", 
-                {"token": token, "node": "mcts_expand"},
-                config=config
-            )
-            
-        # Check for Search (and truncate if found to prevent hallucination loops)
-        search_query = parse_search_request(response_text)
-        if search_query:
-            # TRUNCATION FIX:
-            # If the model outputs "<search>...</search> Then I hallucinate result...", 
-            # we must cut it off after the search tag.
-            # This forces the system to actually run the tool.
-            end_tag = "</search>"
-            if end_tag in response_text:
-                end_idx = response_text.find(end_tag) + len(end_tag)
-                # FORCE TRUNCATION: Ignore anything after </search>
-                # Log if we cut off a significant amount
-                if len(response_text) - end_idx > 20: 
-                     logger.warning(f"Truncated hallucinated content after search tag: {len(response_text) - end_idx} chars")
-                response_text = response_text[:end_idx]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        new_children_ids = []
+        
+        for i, response_text in enumerate(results):
+            if isinstance(response_text, Exception):
+                logger.error(f"Candidate {i} generation failed: {response_text}")
+                continue
                 
-            logger.info(f"MCTS Expand: Detected search for {search_query} (Truncated)")
+            if not response_text:
+                continue
+
+            # Check for Search
+            search_query = parse_search_request(response_text)
             
-            # Create the node representing this Thought + Search Request
+            if search_query:
+                # Truncation logic
+                end_tag = "</search>"
+                if end_tag in response_text:
+                    end_idx = response_text.find(end_tag) + len(end_tag)
+                    if len(response_text) - end_idx > 20: 
+                        logger.warning(f"Truncated hallucinated content after search tag: {len(response_text) - end_idx} chars")
+                    response_text = response_text[:end_idx]
+                    
+                logger.info(f"MCTS Expand: Candidate {i} requests search for '{search_query[:50]}...'")
+                
+            else:
+                logger.info(f"MCTS Expand: Candidate {i} generated thought.")
+
+            # Create Child Node
             child = MCTSNode(content=response_text, role="assistant", parent_id=selected_id)
             tree_nodes[child.id] = child
             state["tree_state"][child.id] = child
             selected_node.children_ids.append(child.id)
+            new_children_ids.append(child.id)
             
-            # Update selected node to this new child, so next expansion continues from here
-            state["selected_node_id"] = child.id
-            
+            # Emit token just for visibility that something happened
+            await adispatch_custom_event(
+                "token", 
+                {"token": f"\n[Candidate {i+1} Generated]\n" + (f"[Search: {search_query}]" if search_query else ""), "node": "mcts_expand"},
+                config=config
+            )
+
+        if not new_children_ids:
+            logger.error("All candidates failed to generate.")
+            return {}
+
+        # If any candidate requested search, we need to handle it.
+        # For V1 LATS Simplification:
+        # If ANY child requests a search, we prioritize searching.
+        # We pick the FIRST child that requested search to drive the 'tool_node'.
+        # Or, we just pass the list of new children to Evaluate, and let it decide?
+        # But `tool_node` expects `pending_search_query`.
+        
+        # Policy: Pick the first search request if any.
+        first_search_child = next((tree_nodes[cid] for cid in new_children_ids if parse_search_request(tree_nodes[cid].content)), None)
+        
+        if first_search_child:
+            query = parse_search_request(first_search_child.content)
+            # We must set this child as 'selected' for the tool node to append results to it
+            state["selected_node_id"] = first_search_child.id
             return {
-                "pending_search_query": search_query,
+                "pending_search_query": query,
                 "tree_state": state["tree_state"],
-                "selected_node_id": child.id 
+                "selected_node_id": first_search_child.id,
+                "current_children_ids": new_children_ids # Pass all for potential eval later?
             }
         
-        # Standard Case: Create Child
-        child = MCTSNode(content=response_text, role="assistant", parent_id=selected_id)
-        tree_nodes[child.id] = child
-        state["tree_state"][child.id] = child
-        selected_node.children_ids.append(child.id)
-        
+        # Else, pass all children to next step (Evaluate)
         return {
             "tree_state": state["tree_state"],
-            "current_child_id": child.id # For evaluation
+            "current_children_ids": new_children_ids 
         }
 
     except Exception as e:
@@ -842,73 +875,117 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
 
 
 async def mcts_evaluate_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
-    """Step 3: Evaluate/Critique the new child node."""
-    child_id = state.get("current_child_id")
-    if not child_id:
-        return {}
+    """Step 3: Evaluate/Critique the new child nodes."""
+    # LATS: Evaluate all new children
+    child_ids = state.get("current_children_ids")
+    # Fallback for single child legacy
+    if not child_ids:
+        single_child = state.get("current_child_id")
+        if single_child:
+            child_ids = [single_child]
+        else:
+            return {}
+
+    tree_nodes = state["tree_state"]
+    logger.info(f"MCTS Evaluate: Scoring {len(child_ids)} candidates...")
+    
+    evaluated_ids = []
+    
+    # In V1, we evaluate sequentially or parallel. Let's do parallel.
+    async def evaluate_single(cid):
+        child = tree_nodes[cid]
         
-    child = state["tree_state"][child_id]
-    reasoning, answer = parse_reasoning_response(child.content)
+        judge_prompt = f"""Evaluate the reasoning step below for the query: "{state['query']}"
+        
+        Reasoning Step:
+        {child.content}
+        
+        INSTRUCTIONS:
+        1. Rate the logical soundness and relevance from 0.0 to 1.0.
+        2. Provide a short critique.
+        3. OUTPUT MUST BE VALID JSON: {{"score": 0.5, "critique": "reasoning..."}}
+        """
+        
+        try:
+            response_json = await llm.generate(judge_prompt, temperature=0.1)
+            # Clean json block if needed
+            if "```json" in response_json:
+                response_json = response_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_json:
+                 response_json = response_json.split("```")[1].strip()
+            
+            # Simple JSON cleanup
+            response_json = response_json.strip()
+            
+            data = json.loads(response_json)
+            score = float(data.get("score", 0.0))
+            # Normalize to 0-1 if model gave 0-10
+            if score > 1.0: score /= 10.0
+            
+            child.value = score # Initial value
+            child.visits = 1    # Mark as visited once evaluated
+            
+            logger.info(f"MCTS Evaluate: Node {cid} Score={score} Critique={data.get('critique','')}")
+            
+            # Emit token for UI visibility
+            eval_text = f"[MCTS Evaluate] Child: {child.id} | Score: {score}/1.0 | Critique: {data.get('critique','')}\n"
+            await adispatch_custom_event(
+                "token", 
+                {"token": eval_text, "node": "mcts_evaluate"},
+                config=config
+            )
+            
+            return cid
+        except Exception as e:
+            logger.error(f"Failed to evaluate node {cid}: {e}")
+            # Fallback score
+            child.value = 0.1
+            child.visits = 1
+            return cid
+
+    tasks = [evaluate_single(cid) for cid in child_ids]
+    await asyncio.gather(*tasks)
     
-    judge_prompt = f"""Evaluate the following answer to: {state['query']}
-    
-    Answer: {answer}
-    Reasoning: {reasoning}
-    
-    Score from 0 to 10."""
-    
-    score_response = await llm.generate(judge_prompt, temperature=0.1)
-    score_match = re.search(r"(\d+(\.\d+)?)", score_response)
-    score = float(score_match.group(1)) if score_match else 0.0
-    value = score / 10.0
-    
-    logger.info(f"MCTS Evaluate: Child {child.id} Score {score}")
-    
-    # Emit token for UI visibility
-    eval_text = f"[MCTS Evaluate] Child: {child.id} | Score: {score}/10\n"
-    await adispatch_custom_event(
-        "token", 
-        {"token": eval_text, "node": "mcts_evaluate"},
-        config=config
-    )
-    
-    await adispatch_custom_event(
-        "debug_log",
-        {
-            "type": "mcts_step", 
-            "step": "evaluate", 
-            "child_id": child.id, 
-            "score": score,
-            "answer_preview": answer[:50]
-        },
-        config=config
-    )
-    
-    return {"evaluation_score": value}
+    return {"tree_state": tree_nodes, "evaluated_ids": child_ids}
 
 
 async def mcts_backprop_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
     """Step 4: Backpropagate value and update budget."""
-    child_id = state.get("current_child_id")
-    value = state.get("evaluation_score", 0.0)
+    # LATS: Backpropagate for ALL evaluated children
+    child_ids = state.get("evaluated_ids")
+    if not child_ids:
+        # Fallback
+        single_id = state.get("current_child_id")
+        if single_id:
+            child_ids = [single_id]
+        else:
+            return {"search_budget": state["search_budget"] - 1}
+
     tree_nodes = state["tree_state"]
     budget = state["search_budget"]
     
-    if child_id:
-        backpropagate(tree_nodes, child_id, value)
+    max_score = 0.0
     
+    for cid in child_ids:
+        node = tree_nodes[cid]
+        # Value was set during Evaluate phase
+        backpropagate(tree_nodes, cid, node.value)
+        if node.value > max_score:
+            max_score = node.value
+    
+    # Decrement budget once per expansion step (or per node? per expansion seems fairer)
     new_budget = budget - 1
     
     # Early Exit Optimization:
-    # If we found a very high-quality answer (Score > 0.9), stop searching.
-    if value > 0.9:
-        logger.info(f"MCTS Backprop: High score ({value}) detected. Stopping early.")
+    # If we found a very high-quality answer (Score > 0.95), stop searching.
+    if max_score > 0.95:
+        logger.info(f"MCTS Backprop: High score ({max_score}) detected among candidates. Stopping early.")
         new_budget = 0
         
     logger.info(f"MCTS Backprop: Budget now {new_budget}")
     
     # Emit token for UI visibility
-    backprop_text = f"[MCTS Backprop] Updated Value. Budget Remaining: {new_budget}\n"
+    backprop_text = f"[MCTS Backprop] Updated Values for {len(child_ids)} paths. Budget Remaining: {new_budget}\n"
     await adispatch_custom_event(
         "token", 
         {"token": backprop_text, "node": "mcts_backprop"},
@@ -955,13 +1032,10 @@ async def mcts_finalize_node(state: ReasoningState, config: RunnableConfig) -> d
     
     logger.info(f"MCTS Complete. Selected leaf {best_leaf.id} with {best_leaf.visits} visits.")
     
-    # Emit the FINAL ANSWER tokens so the UI renders them in the Answer Bubble
-    # (Since all previous tokens were hidden in the Trace)
-    await adispatch_custom_event(
-        "token", 
-        {"token": answer, "node": "mcts_final"}, # Node name matches app.js allow-list
-        config=config
-    )
+    # NOTE: We do NOT manually emit the 'token' here because 'on_chain_end' in routes.py
+    # automatically emits 'final_answer' as a token chunk for the node.
+    # Emitting here causes duplication.
+    # await adispatch_custom_event(...)
     
     return {
         "is_complete": True,
