@@ -20,7 +20,7 @@ def test_api_info():
     assert "model" in data
     assert data["service"] == "LangGraph Reasoning Service"
     # Ensure version is not default 1.0.0 if we updated it
-    assert data["version"] == "0.1.0"
+    assert data["version"] == "0.2.0"
 
 def test_reason_stream_endpoint_exists():
     """Verify the streaming endpoint exists.
