@@ -57,6 +57,53 @@ queryInput.addEventListener('keydown', function (e) {
     }
 });
 
+// Developer Mode Logic
+const devModeToggle = document.getElementById('devModeToggle');
+const debugPanel = document.getElementById('debugPanel');
+const debugContent = document.getElementById('debugContent');
+
+if (devModeToggle) {
+    devModeToggle.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            debugPanel.classList.remove('hidden');
+        } else {
+            debugPanel.classList.add('hidden');
+        }
+    });
+}
+
+function addDebugEntry(type, data) {
+    if (!debugContent) return;
+
+    const entry = document.createElement('div');
+    entry.className = `debug-entry ${type}`;
+
+    const time = new Date().toLocaleTimeString();
+    let contentHtml = '';
+
+    if (type === 'prompt') {
+        const msgs = data.messages || [];
+        contentHtml = msgs.map(m => `<div><strong>${m.role.toUpperCase()}:</strong> ${m.content.substring(0, 300)}...</div>`).join('');
+    } else if (type === 'tool') {
+        contentHtml = `<div><strong>Event:</strong> ${data.type}</div>`;
+        if (data.results_snippet) {
+            contentHtml += `<pre class="debug-json">${JSON.stringify(data.results_snippet, null, 2)}</pre>`;
+        } else {
+            contentHtml += `<pre class="debug-json">${JSON.stringify(data, null, 2)}</pre>`;
+        }
+    } else {
+        contentHtml = `<pre class="debug-json">${JSON.stringify(data, null, 2)}</pre>`;
+    }
+
+    entry.innerHTML = `
+        <div class="debug-timestamp">[${time}] ${type.toUpperCase()}</div>
+        ${contentHtml}
+    `;
+
+    debugContent.appendChild(entry);
+    debugContent.scrollTop = debugContent.scrollHeight;
+}
+
 // Helper: Create message element
 function createMessageElement(role, content = '') {
     const msgDiv = document.createElement('div');
@@ -215,6 +262,10 @@ queryForm.addEventListener('submit', async (e) => {
     let stepCount = 0;
     let firstChunk = true;
 
+    // SSE Parser State
+    let currentEvent = null;
+    let currentData = null;
+
     try {
         const response = await fetchWithRetry('/v1/reason/stream', {
             method: 'POST',
@@ -240,170 +291,208 @@ queryForm.addEventListener('submit', async (e) => {
             buffer = lines.pop(); // Keep incomplete line
 
             for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const dataStr = line.slice(6);
-                    if (dataStr === 'Reasoning complete') break;
+                const trimmed = line.trim();
 
-                    try {
-                        const data = JSON.parse(dataStr);
-                        const token = data.token;
-                        const upstreamNode = data.node || 'reason';
+                if (trimmed === '') {
+                    // --- Dispatch Event (End of Block) ---
+                    if (currentData) {
 
-                        // Handle Node Transition
-                        if (upstreamNode !== currentNode) {
-                            if (currentNode && upstreamNode === 'reason' && answerAccumulator) {
-                                // Archive Draft
-                                const draftDiv = document.createElement('div');
-                                draftDiv.className = 'draft-answer-block';
-                                draftDiv.innerHTML = `<span class="draft-label">Draft Answer #${stepCount}</span>${marked.parse(answerAccumulator)}`;
-                                traceContent.appendChild(draftDiv);
-
-                                // Reset for new attempt
-                                answerAccumulator = '';
-                                answerBubble.innerHTML = '';
-                                answerBubble.classList.add('hidden');
-                            }
-
-                            currentNode = upstreamNode;
-                            stepCount++;
-
-                            if (firstChunk) {
-                                processingStatus.remove();
-                                firstChunk = false;
-                            }
-
-                            const header = document.createElement('div');
-                            header.className = 'trace-step-header';
-                            header.textContent = `Step ${stepCount}: ${currentNode}`;
-                            traceContent.appendChild(header);
+                        // 1. Handle Done Signal
+                        if (currentEvent === 'done') {
+                            // Break the outer loop handled by flag or just break here if careful
+                            // Ideally set a flag to break outer loop
+                            // For now, we rely on the loop finishing naturally, but if 'done' implies immediate stop:
+                            // We can use a label or verify done logic
+                            // Actually, let's just break the stream loop
+                            // Note: breaking the inner 'lines' loop isn't enough. We need to break "while (true)"
+                            // We'll throw an exception or set a flag?
+                            // Easiest is to set reader cancelled?
+                            // Let's just break; this breaks 'for lines', but we need to break 'while'.
+                            // Let's use a flag.
+                            // Wait, 'done' event means stream is finished from server side logic perspective,
+                            // but the HTTP stream might close shortly after.
+                            // Let's handle it gracefully.
                         }
 
-                        // --- Robust Tag Parsing Logic ---
-                        tokenBuffer += token;
-
-                        // Process buffer while it contains closed tags or is safe to flush
-                        while (true) {
-                            const thinkStart = tokenBuffer.indexOf('<think>');
-                            const thinkEnd = tokenBuffer.indexOf('</think>');
-
-                            if (isInThinkTag) {
-                                if (thinkEnd !== -1) {
-                                    const content = tokenBuffer.slice(0, thinkEnd);
-                                    reasoningAccumulator += content;
-                                    traceContent.appendChild(document.createTextNode(content));
-                                    tokenBuffer = tokenBuffer.slice(thinkEnd + 8);
-                                    isInThinkTag = false;
-                                } else {
-                                    // Robust wait for close tag
-                                    let safeIndex = tokenBuffer.length;
-                                    for (let i = 1; i <= 7; i++) {
-                                        if (tokenBuffer.endsWith("</think>".slice(0, i))) {
-                                            safeIndex = tokenBuffer.length - i;
-                                            break;
-                                        }
-                                    }
-
-                                    if (safeIndex < tokenBuffer.length) {
-                                        const safeContent = tokenBuffer.slice(0, safeIndex);
-                                        reasoningAccumulator += safeContent;
-
-                                        // Simple regex replace for visibility (better would be to parse it out completely)
-                                        const searchRender = safeContent.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
-
-                                        if (currentNode === 'tool') {
-                                            const toolContent = document.createElement('div');
-                                            toolContent.className = 'search-results-block';
-                                            toolContent.textContent = safeContent;
-                                            traceContent.appendChild(toolContent);
-                                        } else {
-                                            const span = document.createElement('span');
-                                            span.innerHTML = searchRender;
-                                            traceContent.appendChild(span);
-                                        }
-
-                                        tokenBuffer = tokenBuffer.slice(safeIndex);
-                                        break;
-                                    } else {
-                                        reasoningAccumulator += tokenBuffer;
-                                        const searchRenderAll = tokenBuffer.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
-                                        if (currentNode === 'tool') {
-                                            const toolContent = document.createElement('div');
-                                            toolContent.className = 'search-results-block';
-                                            toolContent.textContent = tokenBuffer;
-                                            traceContent.appendChild(toolContent);
-                                        } else {
-                                            const span = document.createElement('span');
-                                            span.innerHTML = searchRenderAll;
-                                            traceContent.appendChild(span);
-                                        }
-                                        tokenBuffer = '';
-                                        break;
-                                    }
-                                }
-                            } else {
-                                if (thinkStart !== -1) {
-                                    const content = tokenBuffer.slice(0, thinkStart);
-                                    if (currentNode === 'critique') {
-                                        reasoningAccumulator += content;
-                                        traceContent.appendChild(document.createTextNode(content));
-                                    } else {
-                                        answerAccumulator += content;
-                                    }
-                                    tokenBuffer = tokenBuffer.slice(thinkStart + 7);
-                                    isInThinkTag = true;
-                                    traceWrapper.classList.remove('hidden');
-                                } else {
-                                    let safeIndex = tokenBuffer.length;
-                                    for (let i = 1; i <= 6; i++) {
-                                        if (tokenBuffer.endsWith("<think>".slice(0, i))) {
-                                            safeIndex = tokenBuffer.length - i;
-                                            break;
-                                        }
-                                    }
-                                    if (safeIndex < tokenBuffer.length) {
-                                        const safeContent = tokenBuffer.slice(0, safeIndex);
-                                        if (currentNode === 'critique') {
-                                            reasoningAccumulator += safeContent;
-                                            traceContent.appendChild(document.createTextNode(safeContent));
-                                        } else {
-                                            answerAccumulator += safeContent;
-                                        }
-                                        tokenBuffer = tokenBuffer.slice(safeIndex);
-                                        break;
-                                    } else {
-                                        if (currentNode === 'critique') {
-                                            reasoningAccumulator += tokenBuffer;
-                                            traceContent.appendChild(document.createTextNode(tokenBuffer));
-                                        } else {
-                                            answerAccumulator += tokenBuffer;
-                                        }
-                                        tokenBuffer = '';
-                                        break;
-                                    }
-                                }
-                            }
+                        // 2. Handle Debug Events
+                        else if (['prompt_snapshot', 'tool_io', 'debug_log'].includes(currentEvent)) {
+                            try {
+                                const eventData = JSON.parse(currentData);
+                                addDebugEntry(currentEvent === 'prompt_snapshot' ? 'prompt' :
+                                    currentEvent === 'tool_io' ? 'tool' : 'debug', eventData);
+                            } catch (e) { console.warn("Failed to parse debug event:", e); }
                         }
 
-                        requestAnimationFrame(() => {
-                            if (traceContent.classList.contains('expanded')) {
-                                traceContent.scrollTop = traceContent.scrollHeight;
-                            }
-                            if (answerAccumulator) {
-                                answerBubble.classList.remove('hidden');
-                                answerBubble.innerHTML = marked.parse(answerAccumulator);
-                            }
-                            const isAtBottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 100;
-                            if (isAtBottom) {
-                                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-                            }
-                        });
+                        // 3. Handle Ping (Ignore)
+                        else if (currentEvent === 'ping') {
+                            // Do nothing, just keep-alive
+                        }
 
+                        // 3. Handle Token Streaming (Default 'message' event or explicit 'token')
+                        // The backend sends `yield {"data": ...}` which usually defaults to message event.
+                        else {
+                            try {
+                                const data = JSON.parse(currentData);
+                                const token = data.token;
+                                if (token) {
+                                    const upstreamNode = data.node || 'reason';
 
-                    } catch (e) {
-                        // ignore
-                    }
+                                    // Handle Node Transition
+                                    if (upstreamNode !== currentNode) {
+                                        if (currentNode && upstreamNode === 'reason' && answerAccumulator) {
+                                            // Archive Draft Logic
+                                            const draftDiv = document.createElement('div');
+                                            draftDiv.className = 'draft-answer-block';
+                                            draftDiv.innerHTML = `<span class="draft-label">Draft Answer #${stepCount}</span>${marked.parse(answerAccumulator)}`;
+                                            traceContent.appendChild(draftDiv);
+
+                                            // Reset for new attempt
+                                            answerAccumulator = '';
+                                            answerBubble.innerHTML = '';
+                                            answerBubble.classList.add('hidden');
+                                        }
+
+                                        currentNode = upstreamNode;
+                                        stepCount++;
+
+                                        if (firstChunk) {
+                                            processingStatus.remove();
+                                            firstChunk = false;
+                                        }
+
+                                        const header = document.createElement('div');
+                                        header.className = 'trace-step-header';
+                                        header.textContent = `Step ${stepCount}: ${currentNode}`;
+                                        traceContent.appendChild(header);
+                                    }
+
+                                    // --- Robust Parsing Logic ---
+                                    tokenBuffer += token;
+
+                                    // Define which nodes contribute ONLY to trace (no answer accumulation)
+                                    // CRITICAL: Exclude 'mcts_final' so it can populate the Answer Bubble!
+                                    const isTraceOnlyNode = ['plan', 'tool', 'critique', 'mcts_select', 'mcts_expand', 'mcts_evaluate', 'mcts_backprop'].some(p => currentNode && currentNode.startsWith(p));
+
+                                    while (true) {
+                                        const thinkStart = tokenBuffer.indexOf('<think>');
+                                        const thinkEnd = tokenBuffer.indexOf('</think>');
+
+                                        if (isInThinkTag) {
+                                            if (thinkEnd !== -1) {
+                                                const content = tokenBuffer.slice(0, thinkEnd);
+                                                reasoningAccumulator += content;
+                                                traceContent.appendChild(document.createTextNode(content));
+                                                tokenBuffer = tokenBuffer.slice(thinkEnd + 8);
+                                                isInThinkTag = false;
+
+                                                // Update UI
+                                                traceWrapper.classList.add('complete');
+                                            } else {
+                                                // No closing tag yet - flush safe content
+                                                let safeIndex = tokenBuffer.length;
+                                                // Keep last 7 chars in buffer to avoiding splitting </think>
+                                                if (tokenBuffer.length > 7) {
+                                                    safeIndex = tokenBuffer.length - 7;
+                                                } else {
+                                                    safeIndex = 0; // Don't flush if too short
+                                                }
+
+                                                if (safeIndex > 0) {
+                                                    const safeContent = tokenBuffer.slice(0, safeIndex);
+                                                    reasoningAccumulator += safeContent;
+
+                                                    // Render search tags
+                                                    const searchRender = safeContent.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
+
+                                                    if (currentNode === 'tool') {
+                                                        const toolContent = document.createElement('div');
+                                                        toolContent.className = 'search-results-block';
+                                                        toolContent.textContent = safeContent;
+                                                        traceContent.appendChild(toolContent);
+                                                    } else {
+                                                        const span = document.createElement('span');
+                                                        span.innerHTML = searchRender;
+                                                        traceContent.appendChild(span);
+                                                    }
+
+                                                    tokenBuffer = tokenBuffer.slice(safeIndex);
+                                                }
+                                                break; // Wait for more tokens
+                                            }
+                                        } else {
+                                            if (thinkStart !== -1) {
+                                                const content = tokenBuffer.slice(0, thinkStart);
+
+                                                if (isTraceOnlyNode) {
+                                                    reasoningAccumulator += content;
+                                                    traceContent.appendChild(document.createTextNode(content));
+                                                } else {
+                                                    answerAccumulator += content;
+                                                }
+
+                                                tokenBuffer = tokenBuffer.slice(thinkStart + 7);
+                                                isInThinkTag = true;
+                                                traceWrapper.classList.remove('hidden');
+                                                traceWrapper.classList.remove('complete');
+                                            } else {
+                                                // No think tag start
+                                                if (isTraceOnlyNode) {
+                                                    // Everything goes to trace for these nodes
+                                                    reasoningAccumulator += tokenBuffer;
+                                                    // Special handling for search pill rendering in trace-only nodes too
+                                                    const searchRender = tokenBuffer.replace(/<search>(.*?)<\/search>/gs, '<div class="search-pill"><span class="search-icon">🔍</span> $1</div>');
+                                                    if (searchRender !== tokenBuffer) {
+                                                        const span = document.createElement('span');
+                                                        span.innerHTML = searchRender;
+                                                        traceContent.appendChild(span);
+                                                    } else {
+                                                        traceContent.appendChild(document.createTextNode(tokenBuffer));
+                                                    }
+                                                } else {
+                                                    answerAccumulator += tokenBuffer;
+                                                }
+                                                tokenBuffer = '';
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) { console.warn("Parse Error:", e); }
+                        }
+                    } // End dispatch
+
+                    if (currentEvent === 'done') break; // Break for lines loop
+
+                    // Reset for next event
+                    currentEvent = null;
+                    currentData = null;
+
+                } else if (line.startsWith('event: ')) {
+                    currentEvent = line.slice(7).trim();
+                } else if (line.startsWith('data: ')) {
+                    if (currentData === null) currentData = '';
+                    currentData += line.slice(6) + '\n';
                 }
             }
+
+            requestAnimationFrame(() => {
+                if (traceContent.classList.contains('expanded')) {
+                    traceContent.scrollTop = traceContent.scrollHeight;
+                }
+                if (answerAccumulator) {
+                    answerBubble.classList.remove('hidden');
+                    // Pre-process LaTeX: Wrap \boxed{} in $$ delimiters for MathJax
+                    // Simple regex for basic nesting support
+                    const latexAnswer = answerAccumulator.replace(/(\\boxed\{((?:[^{}]+|\{[^{}]*\})*)\})/g, '$$$1$$');
+                    answerBubble.innerHTML = marked.parse(latexAnswer);
+                }
+                const isAtBottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 100;
+                if (isAtBottom) {
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }
+            });
+
+            if (currentEvent === 'done') break; // Break outer loop
         }
 
         // Finalize turn (Success)
@@ -415,6 +504,17 @@ queryForm.addEventListener('submit', async (e) => {
             badge.className = 'final-answer-badge';
             badge.textContent = 'Final Answer';
             answerBubble.insertBefore(badge, answerBubble.firstChild);
+        }
+
+        // Trigger MathJax
+        if (window.MathJax) {
+            try {
+                await window.MathJax.typesetPromise([answerBubble]);
+            } catch (e) {
+                console.warn("MathJax error:", e);
+                // Retry once in case of race condition
+                setTimeout(() => window.MathJax.typesetPromise([answerBubble]), 500);
+            }
         }
 
         chatHistory.push({ role: 'user', content: query });

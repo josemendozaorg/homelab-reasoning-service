@@ -1,5 +1,5 @@
 """State management for the reasoning workflow."""
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Any
 
 
 class ReasoningState(TypedDict):
@@ -23,6 +23,16 @@ class ReasoningState(TypedDict):
     final_answer: Optional[str]
     chat_history: list[dict]
     pending_search_query: Optional[str]
+    # Phase 2: Best-of-N Support
+    candidates: list[dict]
+    verification_scores: list[dict]
+    best_candidate: Optional[dict]
+    # Phase 3: MCTS Support
+    initial_plan: Optional[str] # Phase 3: Planning
+    tree_state: dict[str, Any] # Serialized Dict[str, MCTSNode]
+    root_id: Optional[str]
+    selected_node_id: Optional[str] # For the current MCTS step
+    search_budget: int
 
 
 def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState:
@@ -44,5 +54,13 @@ def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState
         is_complete=False,
         final_answer=None,
         chat_history=history,
-        pending_search_query=None
+        pending_search_query=None,
+        candidates=[],
+        verification_scores=[],
+        best_candidate=None,
+        initial_plan=None,
+        tree_state={},
+        root_id=None,
+        selected_node_id=None,
+        search_budget=10 # Default budget
     )
