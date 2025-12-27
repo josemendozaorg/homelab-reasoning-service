@@ -28,11 +28,16 @@ class ReasoningState(TypedDict):
     verification_scores: list[dict]
     best_candidate: Optional[dict]
     # Phase 3: MCTS Support
-    initial_plan: Optional[str] # Phase 3: Planning
-    tree_state: dict[str, Any] # Serialized Dict[str, MCTSNode]
+    initial_plan: Optional[str]  # Planning phase output
+    tree_state: dict[str, Any]  # Serialized Dict[str, MCTSNode]
     root_id: Optional[str]
-    selected_node_id: Optional[str] # For the current MCTS step
+    selected_node_id: Optional[str]  # For the current MCTS step
     search_budget: int
+    # Phase 3b: LATS Improvements (per research)
+    current_children_ids: list[str]  # IDs of children from current expansion
+    reflected_ids: list[str]  # IDs of children that have been reflected upon
+    evaluated_ids: list[str]  # IDs of children that have been evaluated
+    best_terminal_id: Optional[str]  # ID of best terminal node (for early exit)
 
 
 def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState:
@@ -62,5 +67,10 @@ def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState
         tree_state={},
         root_id=None,
         selected_node_id=None,
-        search_budget=10 # Default budget
+        search_budget=10,  # Default budget
+        # LATS improvements
+        current_children_ids=[],
+        reflected_ids=[],
+        evaluated_ids=[],
+        best_terminal_id=None
     )

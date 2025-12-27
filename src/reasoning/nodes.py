@@ -12,7 +12,14 @@ from langchain_core.runnables import RunnableConfig
 from .state import ReasoningState
 from .tools import perform_web_search
 from .llm import llm
-from .mcts import MCTSNode, select_leaf, backpropagate, uct_score # Added MCTS imports
+from .mcts import (
+    MCTSNode,
+    select_leaf,
+    backpropagate,
+    uct_score,
+    get_adaptive_branching_factor,
+    is_terminal_answer
+)  # MCTS imports
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +340,8 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
         # Append results to the node content effectively "simulating" the user providing the info
         # We append it as a System Notification to the content history
         node.content += f"\n\n[System Notification: Search Results]\n{results}"
+        # Store search results for external verification in reflection phase
+        node.search_results = results
         logger.info(f"Tool Node: Persisted search results to Node {selected_id}")
     
     new_trace = state["reasoning_trace"].copy()
@@ -785,10 +794,11 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     """
     
     messages = [{"role": "system", "content": search_instructions}] + path
-    
-    # PARALLEL EXPANSION (LATS)
-    num_candidates = 3
-    logger.info(f"MCTS Expand: Generating {num_candidates} parallel candidates...")
+
+    # PARALLEL EXPANSION (LATS) with ADAPTIVE BRANCHING
+    # Research: AB-MCTS dynamically decides branching based on uncertainty
+    num_candidates = get_adaptive_branching_factor(tree_nodes, selected_node)
+    logger.info(f"MCTS Expand: Generating {num_candidates} parallel candidates (adaptive)...")
     
     # We use llm.chat (non-streaming) for parallel, as mixing streaming with gather is complex
     # Create N tasks
@@ -826,15 +836,22 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
 
             # Create Child Node
             child = MCTSNode(content=response_text, role="assistant", parent_id=selected_id)
+
+            # Check for terminal state (complete answer found)
+            if is_terminal_answer(response_text, state['query']):
+                child.is_terminal = True
+                logger.info(f"MCTS Expand: Candidate {i} contains terminal answer!")
+
             tree_nodes[child.id] = child
             state["tree_state"][child.id] = child
             selected_node.children_ids.append(child.id)
             new_children_ids.append(child.id)
-            
+
             # Emit token just for visibility that something happened
+            terminal_marker = " [TERMINAL]" if child.is_terminal else ""
             await adispatch_custom_event(
-                "token", 
-                {"token": f"\n[Candidate {i+1} Generated]\n" + (f"[Search: {search_query}]" if search_query else ""), "node": "mcts_expand"},
+                "token",
+                {"token": f"\n[Candidate {i+1} Generated]{terminal_marker}\n" + (f"[Search: {search_query}]" if search_query else ""), "node": "mcts_expand"},
                 config=config
             )
 
@@ -874,11 +891,118 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
         return {}
 
 
+async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
+    """Step 3a: Generate reflection/critique for each candidate (LATS requirement).
+
+    Research: LATS requires reflection BEFORE scoring. The reflection provides
+    reasoning about the reasoning, identifies failure modes, and enables
+    learning across rollouts.
+
+    From LATS paper: "The reflection generator produces verbal self-reflection
+    that summarizes what the agent did, what went wrong, and what insight
+    can be gleaned for future trials."
+    """
+    child_ids = state.get("current_children_ids", [])
+    if not child_ids:
+        return {}
+
+    tree_nodes = state["tree_state"]
+    logger.info(f"MCTS Reflect: Generating reflections for {len(child_ids)} candidates...")
+
+    async def reflect_single(cid):
+        child = tree_nodes[cid]
+
+        # Build trajectory context
+        trajectory = []
+        curr = child
+        while curr:
+            trajectory.append(curr.content[:500])  # Truncate for context window
+            curr = tree_nodes.get(curr.parent_id)
+        trajectory.reverse()
+        trajectory_text = "\n---\n".join(trajectory[-3:])  # Last 3 steps
+
+        reflection_prompt = f"""You are analyzing a reasoning trajectory for the task: "{state['query']}"
+
+Trajectory (recent steps):
+{trajectory_text}
+
+Current Step Being Analyzed:
+{child.content}
+
+Analyze this reasoning step:
+1. CORRECTNESS: Are there any factual errors or logical flaws?
+2. COMPLETENESS: Is anything missing to answer the question?
+3. PROGRESS: Does this step advance toward the goal?
+4. EXTERNAL INFO: Does this step use search results effectively (if any)?
+
+Provide a structured reflection in 2-3 sentences.
+End with: QUALITY: [HIGH/MEDIUM/LOW]
+"""
+
+        try:
+            reflection = await llm.generate(reflection_prompt, temperature=0.3)
+            child.reflection = reflection
+
+            # Extract quality signal for scoring
+            if "QUALITY: HIGH" in reflection.upper():
+                child.reflection_score = 0.9
+            elif "QUALITY: MEDIUM" in reflection.upper():
+                child.reflection_score = 0.6
+            else:
+                child.reflection_score = 0.3
+
+            # Check for external feedback integration
+            if child.search_results:
+                # Verify claims against search results
+                verification_prompt = f"""Given these search results:
+{child.search_results[:1000]}
+
+And this claim/answer:
+{child.content[:500]}
+
+Are the claims supported by the sources? Score 0.0-1.0.
+Output only a number."""
+                try:
+                    ext_score = await llm.generate(verification_prompt, temperature=0.1)
+                    child.external_score = min(1.0, max(0.0, float(ext_score.strip())))
+                except:
+                    child.external_score = 0.5  # Neutral if parsing fails
+
+            logger.info(f"MCTS Reflect: Node {cid} Reflection={child.reflection_score:.2f} External={child.external_score:.2f}")
+
+            # Emit for UI
+            await adispatch_custom_event(
+                "token",
+                {"token": f"[MCTS Reflect] {cid[:8]}... | Quality: {child.reflection_score:.1f} | {reflection[:100]}...\n", "node": "mcts_reflect"},
+                config=config
+            )
+
+            return cid
+        except Exception as e:
+            logger.error(f"Reflection failed for {cid}: {e}")
+            child.reflection = "Reflection failed"
+            child.reflection_score = 0.5
+            return cid
+
+    tasks = [reflect_single(cid) for cid in child_ids]
+    await asyncio.gather(*tasks)
+
+    return {"tree_state": tree_nodes, "reflected_ids": child_ids}
+
+
 async def mcts_evaluate_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
-    """Step 3: Evaluate/Critique the new child nodes."""
-    # LATS: Evaluate all new children
-    child_ids = state.get("current_children_ids")
-    # Fallback for single child legacy
+    """Step 3b: Score candidates using multi-signal value function.
+
+    Research: LLM self-scoring alone is unreliable. We combine:
+    1. Reflection score (from mcts_reflect_node)
+    2. External verification score (from search results)
+    3. Terminal bonus (if complete answer found)
+
+    Per ReST-MCTS* paper: "Since the LLM itself is an unreliable reward model,
+    it's crucial to use Process Reward Models and external feedback."
+    """
+    # Use reflected_ids if available, fallback to current_children_ids
+    child_ids = state.get("reflected_ids") or state.get("current_children_ids", [])
     if not child_ids:
         single_child = state.get("current_child_id")
         if single_child:
@@ -887,70 +1011,62 @@ async def mcts_evaluate_node(state: ReasoningState, config: RunnableConfig) -> d
             return {}
 
     tree_nodes = state["tree_state"]
-    logger.info(f"MCTS Evaluate: Scoring {len(child_ids)} candidates...")
-    
-    evaluated_ids = []
-    
-    # In V1, we evaluate sequentially or parallel. Let's do parallel.
-    async def evaluate_single(cid):
-        child = tree_nodes[cid]
-        
-        judge_prompt = f"""Evaluate the reasoning step below for the query: "{state['query']}"
-        
-        Reasoning Step:
-        {child.content}
-        
-        INSTRUCTIONS:
-        1. Rate the logical soundness and relevance from 0.0 to 1.0.
-        2. Provide a short critique.
-        3. OUTPUT MUST BE VALID JSON: {{"score": 0.5, "critique": "reasoning..."}}
-        """
-        
-        try:
-            response_json = await llm.generate(judge_prompt, temperature=0.1)
-            # Clean json block if needed
-            if "```json" in response_json:
-                response_json = response_json.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_json:
-                 response_json = response_json.split("```")[1].strip()
-            
-            # Simple JSON cleanup
-            response_json = response_json.strip()
-            
-            data = json.loads(response_json)
-            score = float(data.get("score", 0.0))
-            # Normalize to 0-1 if model gave 0-10
-            if score > 1.0: score /= 10.0
-            
-            child.value = score # Initial value
-            child.visits = 1    # Mark as visited once evaluated
-            
-            logger.info(f"MCTS Evaluate: Node {cid} Score={score} Critique={data.get('critique','')}")
-            
-            # Emit token for UI visibility
-            eval_text = f"[MCTS Evaluate] Child: {child.id} | Score: {score}/1.0 | Critique: {data.get('critique','')}\n"
-            await adispatch_custom_event(
-                "token", 
-                {"token": eval_text, "node": "mcts_evaluate"},
-                config=config
-            )
-            
-            return cid
-        except Exception as e:
-            logger.error(f"Failed to evaluate node {cid}: {e}")
-            # Fallback score
-            child.value = 0.1
-            child.visits = 1
-            return cid
+    logger.info(f"MCTS Evaluate: Scoring {len(child_ids)} candidates with multi-signal value function...")
 
-    tasks = [evaluate_single(cid) for cid in child_ids]
-    await asyncio.gather(*tasks)
-    
-    return {"tree_state": tree_nodes, "evaluated_ids": child_ids}
+    evaluated_ids = []
+
+    for cid in child_ids:
+        child = tree_nodes[cid]
+
+        # MULTI-SIGNAL VALUE FUNCTION (per research recommendations)
+        # Signal 1: Reflection score (already computed in reflect node)
+        reflection_score = getattr(child, 'reflection_score', 0.5)
+
+        # Signal 2: External verification (already computed if search results exist)
+        external_score = getattr(child, 'external_score', 0.0)
+
+        # Signal 3: Terminal bonus (reward complete answers)
+        terminal_bonus = 0.2 if child.is_terminal else 0.0
+
+        # Combine scores - weight external feedback higher per research
+        if external_score > 0:
+            # External feedback available - weight it 60%
+            combined_score = (reflection_score * 0.3) + (external_score * 0.5) + terminal_bonus
+        else:
+            # No external feedback - rely on reflection + terminal
+            combined_score = (reflection_score * 0.8) + terminal_bonus
+
+        # Clamp to 0-1
+        combined_score = min(1.0, max(0.0, combined_score))
+
+        child.value = combined_score
+        child.visits = 1
+
+        logger.info(
+            f"MCTS Evaluate: Node {cid} | Reflection={reflection_score:.2f} | "
+            f"External={external_score:.2f} | Terminal={terminal_bonus:.2f} | "
+            f"Combined={combined_score:.2f}"
+        )
+
+        # Emit token for UI visibility
+        eval_text = (
+            f"[MCTS Evaluate] {child.id[:8]}... | "
+            f"Reflection: {reflection_score:.2f} | External: {external_score:.2f} | "
+            f"Terminal: {terminal_bonus:.2f} | Final: {combined_score:.2f}\n"
+        )
+        await adispatch_custom_event(
+            "token",
+            {"token": eval_text, "node": "mcts_evaluate"},
+            config=config
+        )
+
+        evaluated_ids.append(cid)
+
+    return {"tree_state": tree_nodes, "evaluated_ids": evaluated_ids}
 
 
 async def mcts_backprop_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
-    """Step 4: Backpropagate value and update budget."""
+    """Step 4: Backpropagate value with decay and check for early termination."""
     # LATS: Backpropagate for ALL evaluated children
     child_ids = state.get("evaluated_ids")
     if not child_ids:
@@ -963,84 +1079,122 @@ async def mcts_backprop_node(state: ReasoningState, config: RunnableConfig) -> d
 
     tree_nodes = state["tree_state"]
     budget = state["search_budget"]
-    
+
     max_score = 0.0
-    
+    found_terminal = False
+    best_terminal_id = None
+
     for cid in child_ids:
         node = tree_nodes[cid]
-        # Value was set during Evaluate phase
-        backpropagate(tree_nodes, cid, node.value)
+        # Backpropagate with decay (gamma=0.95) per research
+        backpropagate(tree_nodes, cid, node.value, gamma=0.95)
+
         if node.value > max_score:
             max_score = node.value
-    
-    # Decrement budget once per expansion step (or per node? per expansion seems fairer)
+
+        # Check for terminal nodes with high scores
+        if node.is_terminal and node.value > 0.7:
+            found_terminal = True
+            best_terminal_id = cid
+            logger.info(f"MCTS Backprop: Found high-quality terminal node {cid} with score {node.value}")
+
+    # Decrement budget once per expansion step
     new_budget = budget - 1
-    
-    # Early Exit Optimization:
-    # If we found a very high-quality answer (Score > 0.95), stop searching.
-    if max_score > 0.95:
-        logger.info(f"MCTS Backprop: High score ({max_score}) detected among candidates. Stopping early.")
+
+    # Early Exit Conditions:
+    # 1. Found a terminal node with good score
+    # 2. Found any node with very high score (>0.95)
+    early_exit = False
+    if found_terminal:
+        logger.info(f"MCTS Backprop: Terminal answer found with good score. Stopping early.")
         new_budget = 0
-        
+        early_exit = True
+    elif max_score > 0.95:
+        logger.info(f"MCTS Backprop: High score ({max_score}) detected. Stopping early.")
+        new_budget = 0
+        early_exit = True
+
     logger.info(f"MCTS Backprop: Budget now {new_budget}")
-    
+
     # Emit token for UI visibility
-    backprop_text = f"[MCTS Backprop] Updated Values for {len(child_ids)} paths. Budget Remaining: {new_budget}\n"
+    early_marker = " [EARLY EXIT]" if early_exit else ""
+    backprop_text = f"[MCTS Backprop] Updated {len(child_ids)} paths (γ=0.95). Budget: {new_budget}{early_marker}\n"
     await adispatch_custom_event(
-        "token", 
+        "token",
         {"token": backprop_text, "node": "mcts_backprop"},
         config=config
     )
-    
-    return {"search_budget": new_budget}
+
+    result = {"search_budget": new_budget, "tree_state": tree_nodes}
+    if best_terminal_id:
+        result["best_terminal_id"] = best_terminal_id
+
+    return result
 
 
 async def mcts_finalize_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
-    """Select the best path from the tree after search is exhausted."""
+    """Select the best path from the tree after search is exhausted.
+
+    Uses either:
+    1. A pre-identified terminal node (from backprop early exit)
+    2. The most-visited path (standard MCTS selection)
+    """
     tree_nodes = state["tree_state"]
     root_id = state["root_id"]
-    
+
     root = tree_nodes[root_id]
     if not root.children_ids:
         return {"is_complete": True, "final_answer": "MCTS failed to expand root."}
-        
-    # Traverse to find the best leaf (most visited path)
-    current_node = root
-    path_nodes = []
-    
-    while current_node.children_ids:
-        # Select best child by visit count
-        if not current_node.children_ids:
-            break
-            
-        best_child_id = max(current_node.children_ids, key=lambda cid: tree_nodes[cid].visits)
-        best_child = tree_nodes[best_child_id]
-        path_nodes.append(best_child)
-        current_node = best_child
-        
-    # Now current_node is the leaf
-    best_leaf = current_node
-    logger.info(f"MCTS Complete. Traversed to leaf {best_leaf.id} with {best_leaf.visits} visits.")
-    
-    # Parse the content to get the answer from the LEAF (or the accumulated path if needed, but usually leaf has it)
-    # Actually, MCTS expansion adds history. So leaf content is just the latest delta.
-    # But usually the model mimics "thinking -> answer" in the final step.
-    # If the leaf is just "Response", we might need to look at the whole path?
-    # Our prompt says: "Continue reasoning... provide answer".
-    # So the Answer should be in the leaf.
+
+    # Check if we have a pre-identified best terminal node
+    best_terminal_id = state.get("best_terminal_id")
+    if best_terminal_id and best_terminal_id in tree_nodes:
+        best_leaf = tree_nodes[best_terminal_id]
+        logger.info(f"MCTS Complete. Using pre-identified terminal node {best_leaf.id} with score {best_leaf.value:.2f}")
+    else:
+        # Traverse to find the best leaf (most visited path) - standard MCTS
+        current_node = root
+        path_nodes = []
+
+        while current_node.children_ids:
+            if not current_node.children_ids:
+                break
+
+            # Select best child by visit count (standard MCTS selection)
+            best_child_id = max(current_node.children_ids, key=lambda cid: tree_nodes[cid].visits)
+            best_child = tree_nodes[best_child_id]
+            path_nodes.append(best_child)
+            current_node = best_child
+
+        best_leaf = current_node
+        logger.info(f"MCTS Complete. Traversed to leaf {best_leaf.id} with {best_leaf.visits} visits.")
+
+    # Parse the content to get the answer
     _, answer = parse_reasoning_response(best_leaf.content)
-    
-    logger.info(f"MCTS Complete. Selected leaf {best_leaf.id} with {best_leaf.visits} visits.")
-    
-    # NOTE: We do NOT manually emit the 'token' here because 'on_chain_end' in routes.py
-    # automatically emits 'final_answer' as a token chunk for the node.
-    # Emitting here causes duplication.
-    # await adispatch_custom_event(...)
-    
+
+    # If no answer found in leaf, try to find any terminal node with an answer
+    if not answer or len(answer) < 10:
+        logger.warning("No answer in best leaf, searching for terminal nodes...")
+        for node_id, node in tree_nodes.items():
+            if node.is_terminal:
+                _, potential_answer = parse_reasoning_response(node.content)
+                if potential_answer and len(potential_answer) > 10:
+                    answer = potential_answer
+                    best_leaf = node
+                    logger.info(f"Found answer in terminal node {node_id}")
+                    break
+
+    # Build reflection summary for the trace
+    reflection_summary = ""
+    if hasattr(best_leaf, 'reflection') and best_leaf.reflection:
+        reflection_summary = f"\n[Reflection: {best_leaf.reflection[:200]}...]"
+
+    logger.info(f"MCTS Complete. Final answer from {best_leaf.id} (score: {best_leaf.value:.2f})")
+
     return {
         "is_complete": True,
         "final_answer": answer,
-        "reasoning_trace": [f"[MCTS Selection]\n{best_leaf.content}"]
+        "reasoning_trace": [f"[MCTS Selection | Score: {best_leaf.value:.2f}]{reflection_summary}\n{best_leaf.content}"]
     }
 
 
