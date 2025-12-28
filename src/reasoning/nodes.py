@@ -325,7 +325,6 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
         Updated state with tool results.
     """
     from datetime import datetime
-    import re
 
     query = state.get("pending_search_query")
     selected_id = state.get("selected_node_id")  # Which node requested this
@@ -334,26 +333,11 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
     if not query:
         return {}
 
-    # Get current date for time-sensitive searches
+    # Always append current date to all searches for temporal context
     now = datetime.now()
-    current_year = now.strftime("%Y")
     today_date = now.strftime("%Y-%m-%d")
-
-    # Auto-append year for time-sensitive queries if not already present
-    # Detect time-sensitive keywords
-    time_sensitive_keywords = [
-        "current", "latest", "now", "today", "recent", "new", "update",
-        "price", "news", "weather", "stock", "rate", "score", "live"
-    ]
-    query_lower = query.lower()
-
-    # Check if query is time-sensitive and doesn't already have a year
-    has_year = bool(re.search(r'\b20[0-9]{2}\b', query))
-    is_time_sensitive = any(kw in query_lower for kw in time_sensitive_keywords)
-
-    if is_time_sensitive and not has_year:
-        query = f"{query} {current_year}"
-        logger.info(f"Tool Node: Auto-appended year to query: '{query}'")
+    query = f"{query} (as of {today_date})"
+    logger.info(f"Tool Node: Search query with date: '{query}'")
 
     # Determine search depth based on iteration
     # First search: more thorough. Later: faster snippets-only
