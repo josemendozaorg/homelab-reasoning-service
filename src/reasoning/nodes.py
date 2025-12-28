@@ -310,47 +310,58 @@ Final Answer: 9.9
 
 
 async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
-    """Execute pending tool calls.
-    
+    """Execute pending tool calls with tiered search.
+
+    Uses the new tiered search approach:
+    - First iteration: "selective" (snippets + top 3 URLs)
+    - Later iterations: "snippets" (fast, just snippets)
+
     Args:
         state: Current reasoning state.
-        
+
     Returns:
         Updated state with tool results.
     """
     query = state.get("pending_search_query")
-    selected_id = state.get("selected_node_id") # We need to know WHICH node requested this
-    
+    selected_id = state.get("selected_node_id")  # Which node requested this
+    iteration = state.get("iteration", 0)
+
     if not query:
         return {}
-        
-    results = await perform_web_search(query, config=config)
-    
+
+    # Determine search depth based on iteration
+    # First search: more thorough. Later: faster snippets-only
+    if iteration == 0:
+        depth = "selective"  # ~5-10 sec, snippets + top 3 scraped
+    else:
+        depth = "snippets"   # ~2 sec, just snippets
+
+    results = await perform_web_search(query, depth=depth, config=config)
+
     # Emit tokens for UI visibility
-    formatted_results = f"[Search Results]\n{results}\n"
+    formatted_results = f"[Search Results (depth={depth})]\n{results}\n"
     await adispatch_custom_event(
-        "token", 
+        "token",
         {"token": formatted_results, "node": "tool"},
         config=config
     )
-    
+
     # CRITICAL FIX: Persist results to the Tree Node so Expand sees it next time
     if selected_id and selected_id in state["tree_state"]:
         node = state["tree_state"][selected_id]
-        # Append results to the node content effectively "simulating" the user providing the info
-        # We append it as a System Notification to the content history
+        # Append results to the node content
         node.content += f"\n\n[System Notification: Search Results]\n{results}"
         # Store search results for external verification in reflection phase
         node.search_results = results
         logger.info(f"Tool Node: Persisted search results to Node {selected_id}")
-    
+
     new_trace = state["reasoning_trace"].copy()
     new_trace.append(formatted_results)
-    
+
     return {
         "reasoning_trace": new_trace,
         "pending_search_query": None,
-        "tree_state": state["tree_state"] # Return updated tree
+        "tree_state": state["tree_state"]  # Return updated tree
     }
 
 
