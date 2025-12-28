@@ -442,6 +442,8 @@ async def web_search_tool(
     or gather data from the web. The results include source URLs and
     quality/relevance scores.
 
+    Automatically appends the current year to time-sensitive queries.
+
     Args:
         query: The search query. Be specific and include relevant keywords.
         depth: Search depth - "snippets" (fast), "selective" (medium), "deep" (slow).
@@ -450,6 +452,25 @@ async def web_search_tool(
     Returns:
         Formatted search results with snippets and/or scraped content.
     """
+    import re
+
+    # Get current year for time-sensitive searches
+    current_year = datetime.now().strftime("%Y")
+
+    # Auto-append year for time-sensitive queries if not already present
+    time_sensitive_keywords = [
+        "current", "latest", "now", "today", "recent", "new", "update",
+        "price", "news", "weather", "stock", "rate", "score", "live"
+    ]
+    query_lower = query.lower()
+
+    has_year = bool(re.search(r'\b20[0-9]{2}\b', query))
+    is_time_sensitive = any(kw in query_lower for kw in time_sensitive_keywords)
+
+    if is_time_sensitive and not has_year:
+        query = f"{query} {current_year}"
+        logger.info(f"web_search_tool: Auto-appended year to query: '{query}'")
+
     return await perform_web_search(
         query=query,
         depth=depth,

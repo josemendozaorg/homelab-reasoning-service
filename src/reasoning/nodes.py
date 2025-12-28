@@ -316,18 +316,44 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
     - First iteration: "selective" (snippets + top 3 URLs)
     - Later iterations: "snippets" (fast, just snippets)
 
+    Automatically appends current year to time-sensitive queries.
+
     Args:
         state: Current reasoning state.
 
     Returns:
         Updated state with tool results.
     """
+    from datetime import datetime
+    import re
+
     query = state.get("pending_search_query")
     selected_id = state.get("selected_node_id")  # Which node requested this
     iteration = state.get("iteration", 0)
 
     if not query:
         return {}
+
+    # Get current date for time-sensitive searches
+    now = datetime.now()
+    current_year = now.strftime("%Y")
+    today_date = now.strftime("%Y-%m-%d")
+
+    # Auto-append year for time-sensitive queries if not already present
+    # Detect time-sensitive keywords
+    time_sensitive_keywords = [
+        "current", "latest", "now", "today", "recent", "new", "update",
+        "price", "news", "weather", "stock", "rate", "score", "live"
+    ]
+    query_lower = query.lower()
+
+    # Check if query is time-sensitive and doesn't already have a year
+    has_year = bool(re.search(r'\b20[0-9]{2}\b', query))
+    is_time_sensitive = any(kw in query_lower for kw in time_sensitive_keywords)
+
+    if is_time_sensitive and not has_year:
+        query = f"{query} {current_year}"
+        logger.info(f"Tool Node: Auto-appended year to query: '{query}'")
 
     # Determine search depth based on iteration
     # First search: more thorough. Later: faster snippets-only
@@ -367,18 +393,27 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
 
 async def critique_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
     """Evaluate the current answer for errors or improvements."""
+    from datetime import datetime
+
     args_answer = state.get("current_answer")
     critique_text = ""
-    
+
+    # Get current date for context
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+
     if args_answer:
         # Standard critique of an answer
-        system_prompt = """You are a rigorous critic.
+        system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a rigorous critic.
 Instructions:
 1. Review the Question, Reasoning, and Answer.
 2. Check for logical errors, factual inaccuracies, or missing information.
-3. If the answer is satisfactory, simply output "Critique: APPROVED".
-4. If there are issues, describe them concisely."""
-        
+3. For time-sensitive questions, verify the information is current (as of {today_date}).
+4. If the answer is satisfactory, simply output "Critique: APPROVED".
+5. If there are issues, describe them concisely."""
+
         trace_context = "\n".join(state["reasoning_trace"][-3:])
         user_content = f"""Question: {state['query']}
 Reasoning History:
@@ -394,13 +429,16 @@ Critique this answer."""
 
     else:
         # Critique of search results
-        system_prompt = """You are a rigorous critic.
+        system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a rigorous critic.
 Instructions:
 1. Review the Question and Search Results.
 2. Are the results sufficient to answer the question?
-3. If yes, output "Critique: APPROVED".
-4. If no, explain what is missing."""
-        
+3. For time-sensitive questions, verify the search results are current (as of {today_date}).
+4. If yes, output "Critique: APPROVED".
+5. If no, explain what is missing."""
+
         last_trace = state["reasoning_trace"][-1] if state["reasoning_trace"] else "No trace"
         user_content = f"""Question: {state['query']}
 Search Results:
@@ -913,12 +951,18 @@ async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> di
     that summarizes what the agent did, what went wrong, and what insight
     can be gleaned for future trials."
     """
+    from datetime import datetime
+
     child_ids = state.get("current_children_ids", [])
     if not child_ids:
         return {}
 
     tree_nodes = state["tree_state"]
     logger.info(f"MCTS Reflect: Generating reflections for {len(child_ids)} candidates...")
+
+    # Get current date for context
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
 
     async def reflect_single(cid):
         child = tree_nodes[cid]
@@ -932,7 +976,9 @@ async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> di
         trajectory.reverse()
         trajectory_text = "\n---\n".join(trajectory[-3:])  # Last 3 steps
 
-        reflection_prompt = f"""You are analyzing a reasoning trajectory for the task: "{state['query']}"
+        reflection_prompt = f"""TODAY'S DATE: {today_date}
+
+You are analyzing a reasoning trajectory for the task: "{state['query']}"
 
 Trajectory (recent steps):
 {trajectory_text}
