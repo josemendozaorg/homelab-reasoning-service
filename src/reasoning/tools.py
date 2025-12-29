@@ -6,20 +6,53 @@ Implements tiered web search with snippets-first approach:
 - Tier 3 (deep): Scrape more URLs for complex research (~15-20 sec)
 
 Based on research from Perplexity architecture, Agentic RAG, and LangChain best practices.
+
+Tools are decorated with @tool for LangChain compatibility, enabling future migration
+to native tool binding with models that support it.
 """
 import logging
 import asyncio
 import hashlib
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Literal
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 from langchain_core.runnables import RunnableConfig
 from langchain_core.callbacks import adispatch_custom_event
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# TOOL SCHEMAS (for LangChain bind_tools compatibility)
+# =============================================================================
+
+class WebSearchInput(BaseModel):
+    """Input schema for web search tool."""
+
+    query: str = Field(
+        description="The search query to execute. Be specific and include relevant keywords."
+    )
+    depth: Literal["snippets", "selective", "deep"] = Field(
+        default="snippets",
+        description=(
+            "Search depth level:\n"
+            "- 'snippets': Fast (~2s), uses DuckDuckGo snippets only. Best for simple facts.\n"
+            "- 'selective': Medium (~5-10s), scrapes top 3 URLs. Good for detailed info.\n"
+            "- 'deep': Slow (~15-20s), scrapes top 7 URLs. For comprehensive research."
+        )
+    )
+    max_results: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum number of search results to fetch (1-20)."
+    )
+
 
 # =============================================================================
 # CACHING
@@ -386,3 +419,51 @@ async def process_search_results(query: str, results: list, config: RunnableConf
     if scraped:
         return f"{snippet_response}\n\n=== Detailed Content ===\n{scraped}"
     return snippet_response
+
+
+# =============================================================================
+# LANGCHAIN TOOL WRAPPERS
+# =============================================================================
+
+@tool(args_schema=WebSearchInput)
+async def web_search_tool(
+    query: str,
+    depth: Literal["snippets", "selective", "deep"] = "snippets",
+    max_results: int = 5
+) -> str:
+    """Search the web for information using DuckDuckGo.
+
+    This tool performs tiered web search with different depth levels:
+    - snippets: Fast search using DuckDuckGo snippets only (~2 seconds)
+    - selective: Medium depth, scrapes top 3 most relevant URLs (~5-10 seconds)
+    - deep: Comprehensive search, scrapes top 7 URLs (~15-20 seconds)
+
+    Use this tool when you need to find current information, verify facts,
+    or gather data from the web. The results include source URLs and
+    quality/relevance scores.
+
+    Always appends the current date to queries for temporal context.
+
+    Args:
+        query: The search query. Be specific and include relevant keywords.
+        depth: Search depth - "snippets" (fast), "selective" (medium), "deep" (slow).
+        max_results: Maximum search results to fetch (1-20).
+
+    Returns:
+        Formatted search results with snippets and/or scraped content.
+    """
+    # Always append current date to all searches for temporal context
+    today_date = datetime.now().strftime("%Y-%m-%d")
+    query = f"{query} (as of {today_date})"
+    logger.info(f"web_search_tool: Search query with date: '{query}'")
+
+    return await perform_web_search(
+        query=query,
+        depth=depth,
+        max_results=max_results,
+        config=None  # No config when called via bind_tools
+    )
+
+
+# Export the tool for use with LangChain agents
+AVAILABLE_TOOLS = [web_search_tool]

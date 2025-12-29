@@ -316,18 +316,28 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
     - First iteration: "selective" (snippets + top 3 URLs)
     - Later iterations: "snippets" (fast, just snippets)
 
+    Automatically appends current year to time-sensitive queries.
+
     Args:
         state: Current reasoning state.
 
     Returns:
         Updated state with tool results.
     """
+    from datetime import datetime
+
     query = state.get("pending_search_query")
     selected_id = state.get("selected_node_id")  # Which node requested this
     iteration = state.get("iteration", 0)
 
     if not query:
         return {}
+
+    # Always append current date to all searches for temporal context
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+    query = f"{query} (as of {today_date})"
+    logger.info(f"Tool Node: Search query with date: '{query}'")
 
     # Determine search depth based on iteration
     # First search: more thorough. Later: faster snippets-only
@@ -367,18 +377,27 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
 
 async def critique_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
     """Evaluate the current answer for errors or improvements."""
+    from datetime import datetime
+
     args_answer = state.get("current_answer")
     critique_text = ""
-    
+
+    # Get current date for context
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+
     if args_answer:
         # Standard critique of an answer
-        system_prompt = """You are a rigorous critic.
+        system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a rigorous critic.
 Instructions:
 1. Review the Question, Reasoning, and Answer.
 2. Check for logical errors, factual inaccuracies, or missing information.
-3. If the answer is satisfactory, simply output "Critique: APPROVED".
-4. If there are issues, describe them concisely."""
-        
+3. For time-sensitive questions, verify the information is current (as of {today_date}).
+4. If the answer is satisfactory, simply output "Critique: APPROVED".
+5. If there are issues, describe them concisely."""
+
         trace_context = "\n".join(state["reasoning_trace"][-3:])
         user_content = f"""Question: {state['query']}
 Reasoning History:
@@ -394,13 +413,16 @@ Critique this answer."""
 
     else:
         # Critique of search results
-        system_prompt = """You are a rigorous critic.
+        system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a rigorous critic.
 Instructions:
 1. Review the Question and Search Results.
 2. Are the results sufficient to answer the question?
-3. If yes, output "Critique: APPROVED".
-4. If no, explain what is missing."""
-        
+3. For time-sensitive questions, verify the search results are current (as of {today_date}).
+4. If yes, output "Critique: APPROVED".
+5. If no, explain what is missing."""
+
         last_trace = state["reasoning_trace"][-1] if state["reasoning_trace"] else "No trace"
         user_content = f"""Question: {state['query']}
 Search Results:
@@ -649,6 +671,139 @@ async def select_best_node(state: ReasoningState, config: RunnableConfig) -> dic
         "is_complete": True,
         "final_answer": best_cand["answer"]
     }
+
+
+# --- QUERY CLASSIFICATION & FAST PATH ---
+
+async def classify_query_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
+    """Classify query complexity to determine if deep research is needed.
+
+    Returns:
+        query_complexity: "simple" or "complex"
+
+    Simple queries (fast path):
+    - Direct factual questions with known answers
+    - Math calculations
+    - Definitions and explanations of well-known concepts
+    - Questions answerable from general knowledge
+
+    Complex queries (deep research):
+    - Current events, prices, news (need web search)
+    - Comparative analysis
+    - Multi-step reasoning
+    - Questions requiring synthesis of multiple sources
+    - Ambiguous or open-ended questions
+    """
+    from datetime import datetime
+
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+
+    system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a query classifier. Determine if a question needs deep research or can be answered quickly.
+
+SIMPLE (fast path - no research needed):
+- Basic math: "What is 15 * 23?"
+- Well-known facts: "What is the capital of France?"
+- Definitions: "What is photosynthesis?"
+- General knowledge that won't change: "Who wrote Romeo and Juliet?"
+
+COMPLEX (deep research needed):
+- Current information: "What is the Bitcoin price?" "Latest news about..."
+- Recent events: Anything that might have changed recently
+- Comparisons requiring research: "Compare X and Y"
+- Multi-source synthesis: "What are the pros and cons of..."
+- Ambiguous questions needing clarification
+- Technical questions requiring up-to-date documentation
+
+Respond with ONLY one word: SIMPLE or COMPLEX"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Question: {state['query']}"}
+    ]
+
+    try:
+        response = await llm.chat(messages, temperature=0.1)
+        response_upper = response.strip().upper()
+
+        if "SIMPLE" in response_upper:
+            complexity = "simple"
+        else:
+            complexity = "complex"
+
+        logger.info(f"Query classified as: {complexity}")
+
+        await adispatch_custom_event(
+            "token",
+            {"token": f"[Query Classification: {complexity.upper()}]\n", "node": "classify"},
+            config=config
+        )
+
+        return {"query_complexity": complexity}
+
+    except Exception as e:
+        logger.error(f"Classification failed: {e}, defaulting to complex")
+        return {"query_complexity": "complex"}
+
+
+async def fast_answer_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
+    """Generate a quick answer for simple queries without deep research.
+
+    This is the fast path for queries that don't need web search or
+    multi-step reasoning. Uses a single LLM call.
+    """
+    from datetime import datetime
+
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+
+    system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a helpful assistant. Answer the question directly and concisely.
+
+Important:
+- If you're not confident about the answer, say so
+- For factual questions, provide the answer directly
+- For math, show the calculation
+- Keep the response focused and clear"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": state['query']}
+    ]
+
+    answer_text = ""
+    logger.info("Fast path: Generating quick answer...")
+
+    try:
+        async for token in llm.chat_stream(messages, temperature=0.3):
+            answer_text += token
+            await adispatch_custom_event(
+                "token",
+                {"token": token, "node": "fast_answer"},
+                config=config
+            )
+
+        return {
+            "final_answer": answer_text.strip(),
+            "is_complete": True,
+            "reasoning_trace": ["[Fast Path - Direct Answer]"]
+        }
+
+    except Exception as e:
+        logger.error(f"Fast answer failed: {e}")
+        # Fall back to complex path
+        return {"query_complexity": "complex"}
+
+
+def route_by_complexity(state: ReasoningState) -> str:
+    """Route to fast path or deep research based on query complexity."""
+    complexity = state.get("query_complexity", "complex")
+    if complexity == "simple":
+        return "fast_answer"
+    return "plan"
 
 
 # --- PLANS & MCTS NODES ---
@@ -913,12 +1068,18 @@ async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> di
     that summarizes what the agent did, what went wrong, and what insight
     can be gleaned for future trials."
     """
+    from datetime import datetime
+
     child_ids = state.get("current_children_ids", [])
     if not child_ids:
         return {}
 
     tree_nodes = state["tree_state"]
     logger.info(f"MCTS Reflect: Generating reflections for {len(child_ids)} candidates...")
+
+    # Get current date for context
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
 
     async def reflect_single(cid):
         child = tree_nodes[cid]
@@ -932,7 +1093,9 @@ async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> di
         trajectory.reverse()
         trajectory_text = "\n---\n".join(trajectory[-3:])  # Last 3 steps
 
-        reflection_prompt = f"""You are analyzing a reasoning trajectory for the task: "{state['query']}"
+        reflection_prompt = f"""TODAY'S DATE: {today_date}
+
+You are analyzing a reasoning trajectory for the task: "{state['query']}"
 
 Trajectory (recent steps):
 {trajectory_text}
