@@ -38,6 +38,8 @@ class ReasoningState(TypedDict):
     reflected_ids: list[str]  # IDs of children that have been reflected upon
     evaluated_ids: list[str]  # IDs of children that have been evaluated
     best_terminal_id: Optional[str]  # ID of best terminal node (for early exit)
+    # Query Classification
+    query_complexity: Optional[str]  # "simple" or "complex" - determines fast/deep path
 
 
 def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState:
@@ -72,5 +74,7 @@ def create_initial_state(query: str, history: list[dict] = []) -> ReasoningState
         current_children_ids=[],
         reflected_ids=[],
         evaluated_ids=[],
-        best_terminal_id=None
+        best_terminal_id=None,
+        # Query classification
+        query_complexity=None
     )

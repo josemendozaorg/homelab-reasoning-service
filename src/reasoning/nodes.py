@@ -673,6 +673,139 @@ async def select_best_node(state: ReasoningState, config: RunnableConfig) -> dic
     }
 
 
+# --- QUERY CLASSIFICATION & FAST PATH ---
+
+async def classify_query_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
+    """Classify query complexity to determine if deep research is needed.
+
+    Returns:
+        query_complexity: "simple" or "complex"
+
+    Simple queries (fast path):
+    - Direct factual questions with known answers
+    - Math calculations
+    - Definitions and explanations of well-known concepts
+    - Questions answerable from general knowledge
+
+    Complex queries (deep research):
+    - Current events, prices, news (need web search)
+    - Comparative analysis
+    - Multi-step reasoning
+    - Questions requiring synthesis of multiple sources
+    - Ambiguous or open-ended questions
+    """
+    from datetime import datetime
+
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+
+    system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a query classifier. Determine if a question needs deep research or can be answered quickly.
+
+SIMPLE (fast path - no research needed):
+- Basic math: "What is 15 * 23?"
+- Well-known facts: "What is the capital of France?"
+- Definitions: "What is photosynthesis?"
+- General knowledge that won't change: "Who wrote Romeo and Juliet?"
+
+COMPLEX (deep research needed):
+- Current information: "What is the Bitcoin price?" "Latest news about..."
+- Recent events: Anything that might have changed recently
+- Comparisons requiring research: "Compare X and Y"
+- Multi-source synthesis: "What are the pros and cons of..."
+- Ambiguous questions needing clarification
+- Technical questions requiring up-to-date documentation
+
+Respond with ONLY one word: SIMPLE or COMPLEX"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Question: {state['query']}"}
+    ]
+
+    try:
+        response = await llm.chat(messages, temperature=0.1)
+        response_upper = response.strip().upper()
+
+        if "SIMPLE" in response_upper:
+            complexity = "simple"
+        else:
+            complexity = "complex"
+
+        logger.info(f"Query classified as: {complexity}")
+
+        await adispatch_custom_event(
+            "token",
+            {"token": f"[Query Classification: {complexity.upper()}]\n", "node": "classify"},
+            config=config
+        )
+
+        return {"query_complexity": complexity}
+
+    except Exception as e:
+        logger.error(f"Classification failed: {e}, defaulting to complex")
+        return {"query_complexity": "complex"}
+
+
+async def fast_answer_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
+    """Generate a quick answer for simple queries without deep research.
+
+    This is the fast path for queries that don't need web search or
+    multi-step reasoning. Uses a single LLM call.
+    """
+    from datetime import datetime
+
+    now = datetime.now()
+    today_date = now.strftime("%Y-%m-%d")
+
+    system_prompt = f"""TODAY'S DATE: {today_date}
+
+You are a helpful assistant. Answer the question directly and concisely.
+
+Important:
+- If you're not confident about the answer, say so
+- For factual questions, provide the answer directly
+- For math, show the calculation
+- Keep the response focused and clear"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": state['query']}
+    ]
+
+    answer_text = ""
+    logger.info("Fast path: Generating quick answer...")
+
+    try:
+        async for token in llm.chat_stream(messages, temperature=0.3):
+            answer_text += token
+            await adispatch_custom_event(
+                "token",
+                {"token": token, "node": "fast_answer"},
+                config=config
+            )
+
+        return {
+            "final_answer": answer_text.strip(),
+            "is_complete": True,
+            "reasoning_trace": ["[Fast Path - Direct Answer]"]
+        }
+
+    except Exception as e:
+        logger.error(f"Fast answer failed: {e}")
+        # Fall back to complex path
+        return {"query_complexity": "complex"}
+
+
+def route_by_complexity(state: ReasoningState) -> str:
+    """Route to fast path or deep research based on query complexity."""
+    complexity = state.get("query_complexity", "complex")
+    if complexity == "simple":
+        return "fast_answer"
+    return "plan"
+
+
 # --- PLANS & MCTS NODES ---
 
 async def plan_node(state: ReasoningState, config: RunnableConfig) -> dict[str, Any]:
