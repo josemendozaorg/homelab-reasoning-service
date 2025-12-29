@@ -137,7 +137,7 @@ async def reason_stream(request: ReasoningRequest, req: Request):
         
         async def producer():
             try:
-                async for event in graph.astream_events(initial_state, version="v2"):
+                async for event in graph.astream_events(initial_state, version="v2", config={"recursion_limit": 150}):
                     await queue.put({"type": "event", "payload": event})
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
@@ -163,7 +163,7 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                 
                 elif msg_type == "error":
                     logger.error(f"Stream error signal: {item['payload']}")
-                    yield {"event": "error", "data": item["payload"]}
+                    yield {"event": "error", "data": json.dumps({"message": item["payload"]})}
                     break
                 
                 elif msg_type == "event":
@@ -174,11 +174,18 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                     if event_type == "on_custom_event":
                         node_name = event.get("metadata", {}).get("langgraph_node")
                         data = event.get("data", {})
+                        
+                        # 1. Token Streaming
                         if data.get("token"):
                             yield {"data": json.dumps({
                                 "token": data["token"],
                                 "node": data.get("node", node_name)
                             })}
+                        
+                        # 2. Developer Observability Events
+                        elif event.get("name") in ["prompt_snapshot", "tool_io", "debug_log"]:
+                            yield {"event": event["name"], "data": json.dumps(data)}
+                            
                         continue
 
                     # 2. Handle Node Completion (State Updates)
@@ -202,13 +209,22 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                                         "node": "tool"
                                     })}
                         
-                        # We no longer emit current_answer here because tokens are already streamed in real-time
-                        # via on_custom_event. Emitting it here causes duplication in the UI.
+                        # 3. Handle Final Answer Selection (Non-streamed)
+                        if "final_answer" in output:
+                            final_ans = output["final_answer"]
+                            # Only emit if it looks like we haven't streamed it (safety check)
+                            # For MCTS, this is the selected node's content.
+                            # We send it as a large "token" chunk.
+                            yield {"data": json.dumps({
+                                "token": final_ans,
+                                "node": node_name
+                            })}
+                        
                         pass
 
             except asyncio.TimeoutError:
-                # Send keep-alive ping
-                yield {"event": "ping", "data": ""}
+                # Send keep-alive ping with empty JSON to avoid frontend parse error
+                yield {"event": "ping", "data": "{}"}
 
         # Clean up
         if not producer_task.done():

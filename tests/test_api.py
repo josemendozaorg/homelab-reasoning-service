@@ -12,13 +12,12 @@ def client():
 
 
 def test_root_endpoint(client):
-    """Root endpoint returns service info."""
+    """Root endpoint services the UI (HTML)."""
     response = client.get("/")
     assert response.status_code == 200
-    data = response.json()
-    assert data["service"] == "LangGraph Reasoning Service"
-    assert "version" in data
-    assert "model" in data
+    assert "text/html" in response.headers["content-type"]
+    assert "<!DOCTYPE html>" in response.text
+
 
 
 def test_health_endpoint_structure(client):
