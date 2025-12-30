@@ -16,10 +16,9 @@ class Settings(BaseSettings):
 
     # API Configuration
     api_host: str = "0.0.0.0"
-    # Application Version
+
     # Application Version
     app_version: str = "0.2.0"
-    commit_hash: str = "local"
 
     class Config:
         env_prefix = "REASONING_"
