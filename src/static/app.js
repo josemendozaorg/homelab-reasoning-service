@@ -27,13 +27,14 @@ async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
     }
 }
 
-// Keep initialization
+// Fetch and display version info
 (async () => {
     try {
         const res = await fetchWithRetry('/api/info');
         const data = await res.json();
         if (data.version) {
-            appVersion.textContent = `v${data.version}`;
+            const commit = data.commit || 'dev';
+            appVersion.textContent = `v${data.version} (${commit})`;
         }
     } catch (e) {
         console.error("Failed to fetch version:", e);
@@ -57,52 +58,6 @@ queryInput.addEventListener('keydown', function (e) {
     }
 });
 
-// Developer Mode Logic
-const devModeToggle = document.getElementById('devModeToggle');
-const debugPanel = document.getElementById('debugPanel');
-const debugContent = document.getElementById('debugContent');
-
-if (devModeToggle) {
-    devModeToggle.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            debugPanel.classList.remove('hidden');
-        } else {
-            debugPanel.classList.add('hidden');
-        }
-    });
-}
-
-function addDebugEntry(type, data) {
-    if (!debugContent) return;
-
-    const entry = document.createElement('div');
-    entry.className = `debug-entry ${type}`;
-
-    const time = new Date().toLocaleTimeString();
-    let contentHtml = '';
-
-    if (type === 'prompt') {
-        const msgs = data.messages || [];
-        contentHtml = msgs.map(m => `<div><strong>${m.role.toUpperCase()}:</strong> ${m.content.substring(0, 300)}...</div>`).join('');
-    } else if (type === 'tool') {
-        contentHtml = `<div><strong>Event:</strong> ${data.type}</div>`;
-        if (data.results_snippet) {
-            contentHtml += `<pre class="debug-json">${JSON.stringify(data.results_snippet, null, 2)}</pre>`;
-        } else {
-            contentHtml += `<pre class="debug-json">${JSON.stringify(data, null, 2)}</pre>`;
-        }
-    } else {
-        contentHtml = `<pre class="debug-json">${JSON.stringify(data, null, 2)}</pre>`;
-    }
-
-    entry.innerHTML = `
-        <div class="debug-timestamp">[${time}] ${type.toUpperCase()}</div>
-        ${contentHtml}
-    `;
-
-    debugContent.appendChild(entry);
-    debugContent.scrollTop = debugContent.scrollHeight;
-}
 
 // Helper: Create message element
 function createMessageElement(role, content = '') {
@@ -314,21 +269,12 @@ queryForm.addEventListener('submit', async (e) => {
                             // Let's handle it gracefully.
                         }
 
-                        // 2. Handle Debug Events
-                        else if (['prompt_snapshot', 'tool_io', 'debug_log'].includes(currentEvent)) {
-                            try {
-                                const eventData = JSON.parse(currentData);
-                                addDebugEntry(currentEvent === 'prompt_snapshot' ? 'prompt' :
-                                    currentEvent === 'tool_io' ? 'tool' : 'debug', eventData);
-                            } catch (e) { console.warn("Failed to parse debug event:", e); }
-                        }
-
-                        // 3. Handle Ping (Ignore)
+                        // 2. Handle Ping (keep-alive)
                         else if (currentEvent === 'ping') {
                             // Do nothing, just keep-alive
                         }
 
-                        // 3. Handle Token Streaming (Default 'message' event or explicit 'token')
+                        // 3. Handle Token Streaming
                         // The backend sends `yield {"data": ...}` which usually defaults to message event.
                         else {
                             try {

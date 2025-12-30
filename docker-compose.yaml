@@ -5,7 +5,7 @@ services:
     build:
       context: .
       args:
-        GIT_COMMIT_HASH: ${SOURCE_COMMIT:-local}
+        GIT_COMMIT_HASH: ${SOURCE_COMMIT:-dev}
     container_name: reasoning-service
     ports:
       - "8080:8080"  # Exposed for local testing
