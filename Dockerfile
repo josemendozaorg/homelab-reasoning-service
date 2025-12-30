@@ -18,10 +18,6 @@ COPY src/ ./src/
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Application Versioning (set GIT_COMMIT_HASH at build time)
-ARG GIT_COMMIT_HASH=dev
-ENV REASONING_COMMIT_HASH=$GIT_COMMIT_HASH
-
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1

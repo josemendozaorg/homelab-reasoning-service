@@ -4,8 +4,6 @@ services:
   reasoning-service:
     build:
       context: .
-      args:
-        GIT_COMMIT_HASH: ${SOURCE_COMMIT:-dev}
     # ports:
     #   - "8080:8080"  # Uncomment for local testing only
     environment:
