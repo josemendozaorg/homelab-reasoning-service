@@ -6,9 +6,8 @@ services:
       context: .
       args:
         GIT_COMMIT_HASH: ${SOURCE_COMMIT:-dev}
-    container_name: reasoning-service
-    ports:
-      - "8080:8080"  # Exposed for local testing
+    # ports:
+    #   - "8080:8080"  # Uncomment for local testing only
     environment:
       - REASONING_OLLAMA_BASE_URL=http://192.168.0.140:11434
       - REASONING_OLLAMA_MODEL=deepseek-r1:14b
