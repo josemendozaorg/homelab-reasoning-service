@@ -4,8 +4,6 @@ services:
   reasoning-service:
     build:
       context: .
-      args:
-        GIT_COMMIT_HASH: ${SOURCE_COMMIT:-dev}
     # ports:
     #   - "8080:8080"  # Uncomment for local testing only
     environment:
@@ -14,6 +12,7 @@ services:
       - REASONING_MAX_REASONING_ITERATIONS=5
       - REASONING_MAX_CONTEXT_TOKENS=16000
       - REASONING_TEMPERATURE=0.7
+      - REASONING_COMMIT_HASH=${SOURCE_COMMIT:-dev}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
