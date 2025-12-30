@@ -18,8 +18,8 @@ COPY src/ ./src/
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Application Versioning
-ARG GIT_COMMIT_HASH=local
+# Application Versioning (set GIT_COMMIT_HASH at build time)
+ARG GIT_COMMIT_HASH=dev
 ENV REASONING_COMMIT_HASH=$GIT_COMMIT_HASH
 
 # Health check
