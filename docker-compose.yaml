@@ -22,9 +22,6 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.middlewares.gzip.compress=true"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.routers.reasoning-service.middlewares=gzip,redirect-to-https"
       - "traefik.http.services.reasoning-service.loadbalancer.server.port=8080"
 
 
