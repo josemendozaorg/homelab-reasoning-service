@@ -27,13 +27,14 @@ async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
     }
 }
 
-// Keep initialization
+// Fetch and display version info
 (async () => {
     try {
         const res = await fetchWithRetry('/api/info');
         const data = await res.json();
         if (data.version) {
-            appVersion.textContent = `v${data.version}`;
+            const commit = data.commit || 'dev';
+            appVersion.textContent = `v${data.version} (${commit})`;
         }
     } catch (e) {
         console.error("Failed to fetch version:", e);

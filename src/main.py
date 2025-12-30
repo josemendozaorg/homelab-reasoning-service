@@ -74,6 +74,7 @@ async def info():
     return {
         "service": "LangGraph Reasoning Service",
         "version": settings.app_version,
+        "commit": settings.commit_hash,
         "model": settings.ollama_model
     }
 

@@ -17,8 +17,9 @@ class Settings(BaseSettings):
     # API Configuration
     api_host: str = "0.0.0.0"
 
-    # Application Version
+    # Application Version (set REASONING_COMMIT_HASH in CI/CD or Docker build)
     app_version: str = "0.2.0"
+    commit_hash: str = "dev"
 
     class Config:
         env_prefix = "REASONING_"
