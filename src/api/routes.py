@@ -10,7 +10,7 @@ from src.config import settings
 from src.llm import OllamaClient
 from src.reasoning import create_reasoning_graph
 from src.reasoning.state import create_initial_state
-from .models import ReasoningRequest, ReasoningResponse, HealthResponse, TestInferenceResponse
+from .models import ReasoningRequest, ReasoningResponse, HealthResponse, TestInferenceResponse, ModelInfo, ModelsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,29 @@ async def health_check() -> HealthResponse:
         ollama_connected=ollama_connected
     )
 
+@router.get("/v1/models", response_model=ModelsResponse)
+async def list_models() -> ModelsResponse:
+    """List available Ollama models.
+
+    Returns:
+        List of models with their metadata and the default model.
+    """
+    client = OllamaClient()
+    models = await client.list_models()
+
+    return ModelsResponse(
+        models=[
+            ModelInfo(
+                name=m["name"],
+                size=m.get("size", 0),
+                modified_at=m.get("modified_at", "")
+            )
+            for m in models
+        ],
+        default=settings.ollama_model
+    )
+
+
 @router.post("/v1/test-inference", response_model=TestInferenceResponse)
 async def test_inference() -> TestInferenceResponse:
     """Run a fast inference check (max 10 tokens)."""
@@ -127,17 +150,24 @@ async def test_inference() -> TestInferenceResponse:
 @router.post("/v1/reason/stream")
 async def reason_stream(request: ReasoningRequest, req: Request):
     """Stream reasoning progress using Server-Sent Events (SSE)."""
-    
+
     async def event_generator():
+        # Use requested model or fall back to default
+        model = request.model or settings.ollama_model
+
         # Create initial state
-        initial_state = create_initial_state(request.query, request.history)
+        initial_state = create_initial_state(request.query, request.history, model=model)
         graph = get_reasoning_graph()
         
         queue = asyncio.Queue()
         
         async def producer():
             try:
-                async for event in graph.astream_events(initial_state, version="v2", config={"recursion_limit": 150}):
+                config = {
+                    "recursion_limit": 150,
+                    "configurable": {"model": model}
+                }
+                async for event in graph.astream_events(initial_state, version="v2", config=config):
                     await queue.put({"type": "event", "payload": event})
             except Exception as e:
                 logger.error(f"Streaming error: {e}")

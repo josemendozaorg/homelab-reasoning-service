@@ -89,7 +89,12 @@
                         <input type="checkbox" id="showTrace" checked>
                         <span class="toggle-label">Show Reasoning Trace</span>
                     </label>
-                    <span class="model-info" id="modelInfo">DeepSeek-R1</span>
+                    <div class="model-selector">
+                        <label for="modelSelect">Model:</label>
+                        <select id="modelSelect" class="model-dropdown">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
                 </div>
             </form>
         </footer>

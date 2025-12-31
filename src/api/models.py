@@ -11,6 +11,10 @@ class ReasoningRequest(BaseModel):
         description="The question or problem to reason about",
         examples=["What are the implications of Godel's incompleteness theorems for AGI?"]
     )
+    model: Optional[str] = Field(
+        default=None,
+        description="Model to use for reasoning (defaults to server configuration)"
+    )
     max_iterations: Optional[int] = Field(
         default=None,
         description="Maximum reasoning iterations (overrides default)",
@@ -60,3 +64,18 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Service health status")
     model: str = Field(description="Configured LLM model")
     ollama_connected: bool = Field(description="Whether Ollama is reachable")
+
+
+class ModelInfo(BaseModel):
+    """Information about an available model."""
+
+    name: str = Field(description="Model name (e.g., 'deepseek-r1:14b')")
+    size: int = Field(default=0, description="Model size in bytes")
+    modified_at: str = Field(default="", description="Last modified timestamp")
+
+
+class ModelsResponse(BaseModel):
+    """Response model for listing available models."""
+
+    models: list[ModelInfo] = Field(description="List of available models")
+    default: str = Field(description="Default model from configuration")

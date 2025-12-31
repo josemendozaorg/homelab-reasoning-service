@@ -11,7 +11,7 @@ from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 from .state import ReasoningState
 from .tools import perform_web_search
-from .llm import llm
+from .llm import llm, get_model_from_config
 from .mcts import (
     MCTSNode,
     select_leaf,
@@ -267,12 +267,15 @@ Final Answer: 9.9
         )
 
     try:
+        # Get model from config
+        model = get_model_from_config(config)
+
         # Stream the response and dispatch tokens
-        async for token in llm.chat_stream(messages):
+        async for token in llm.chat_stream(messages, model=model):
             response_text += token
             # Dispatch token as custom event
             await adispatch_custom_event(
-                "token", 
+                "token",
                 {"token": token, "node": "reason"},
                 config=config
             )
@@ -435,11 +438,12 @@ Critique these results."""
         ]
 
     try:
-        async for token in llm.chat_stream(messages):
+        model = get_model_from_config(config)
+        async for token in llm.chat_stream(messages, model=model):
             critique_text += token
             # Dispatch token as custom event
             await adispatch_custom_event(
-                "token", 
+                "token",
                 {"token": token, "node": "critique"},
                 config=config
             )
@@ -565,11 +569,12 @@ async def generate_candidates_node(state: ReasoningState, config: RunnableConfig
         {"role": "user", "content": user_content}
     ]
 
+    model = get_model_from_config(config)
     for i in range(num_candidates):
         try:
             logger.info(f"Generating candidate {i+1}/{num_candidates}...")
             # Use higher temperature (0.7) for distinct paths
-            response_text = await llm.chat(messages, temperature=0.7)
+            response_text = await llm.chat(messages, temperature=0.7, model=model)
             
             reasoning, answer = parse_reasoning_response(response_text)
             
@@ -598,7 +603,8 @@ async def evaluate_candidates_node(state: ReasoningState, config: RunnableConfig
     scores = []
     
     logger.info(f"Evaluating {len(candidates)} candidates...")
-    
+
+    model = get_model_from_config(config)
     for cand in candidates:
         try:
             # Judge prompt
@@ -608,23 +614,23 @@ async def evaluate_candidates_node(state: ReasoningState, config: RunnableConfig
             1. Logical steps validity.
             2. Factuality.
             3. Adherence to constraints.
-            
+
             Output a score from 0 to 10 and a brief critique.
             Format: Score: X\nCritique: ..."""
-            
+
             user_content = f"""Question: {state['query']}
-            
+
             Candidate Reasoning:
             {cand['reasoning']}
-            
+
             Candidate Answer:
             {cand['answer']}
             """
-            
+
             response = await llm.chat([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
-            ], temperature=0.1) # Low temp for judging
+            ], temperature=0.1, model=model)  # Low temp for judging
             
             # Parse score
             score_match = re.search(r"Score:\s*(\d+(\.\d+)?)", response, re.IGNORECASE)
@@ -725,7 +731,8 @@ Respond with ONLY one word: SIMPLE or COMPLEX"""
     ]
 
     try:
-        response = await llm.chat(messages, temperature=0.1)
+        model = get_model_from_config(config)
+        response = await llm.chat(messages, temperature=0.1, model=model)
         response_upper = response.strip().upper()
 
         if "SIMPLE" in response_upper:
@@ -778,7 +785,8 @@ Important:
     logger.info("Fast path: Generating quick answer...")
 
     try:
-        async for token in llm.chat_stream(messages, temperature=0.3):
+        model = get_model_from_config(config)
+        async for token in llm.chat_stream(messages, temperature=0.3, model=model):
             answer_text += token
             await adispatch_custom_event(
                 "token",
@@ -834,18 +842,19 @@ Objective: Create a concise, high-level step-by-step plan to answer the user's q
     
     plan_text = ""
     logger.info("Generating Initial Plan...")
-    
+
     try:
-        async for token in llm.chat_stream(messages, temperature=0.7):
+        model = get_model_from_config(config)
+        async for token in llm.chat_stream(messages, temperature=0.7, model=model):
             plan_text += token
             await adispatch_custom_event(
-                "token", 
+                "token",
                 {"token": token, "node": "plan"},
                 config=config
             )
-            
+
         return {"initial_plan": plan_text}
-        
+
     except Exception as e:
         logger.error(f"Planning failed: {e}")
         return {"initial_plan": "Failed to generate plan. Proceeding with direct reasoning."}
@@ -965,10 +974,13 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     # Research: AB-MCTS dynamically decides branching based on uncertainty
     num_candidates = get_adaptive_branching_factor(tree_nodes, selected_node)
     logger.info(f"MCTS Expand: Generating {num_candidates} parallel candidates (adaptive)...")
-    
+
+    # Get model from config
+    model = get_model_from_config(config)
+
     # We use llm.chat (non-streaming) for parallel, as mixing streaming with gather is complex
     # Create N tasks
-    tasks = [llm.chat(messages, temperature=0.7) for _ in range(num_candidates)]
+    tasks = [llm.chat(messages, temperature=0.7, model=model) for _ in range(num_candidates)]
     
     try:
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1081,6 +1093,9 @@ async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> di
     now = datetime.now()
     today_date = now.strftime("%Y-%m-%d")
 
+    # Get model from config
+    model = get_model_from_config(config)
+
     async def reflect_single(cid):
         child = tree_nodes[cid]
 
@@ -1114,7 +1129,7 @@ End with: QUALITY: [HIGH/MEDIUM/LOW]
 """
 
         try:
-            reflection = await llm.generate(reflection_prompt, temperature=0.3)
+            reflection = await llm.generate(reflection_prompt, temperature=0.3, model=model)
             child.reflection = reflection
 
             # Extract quality signal for scoring
@@ -1137,7 +1152,7 @@ And this claim/answer:
 Are the claims supported by the sources? Score 0.0-1.0.
 Output only a number."""
                 try:
-                    ext_score = await llm.generate(verification_prompt, temperature=0.1)
+                    ext_score = await llm.generate(verification_prompt, temperature=0.1, model=model)
                     child.external_score = min(1.0, max(0.0, float(ext_score.strip())))
                 except:
                     child.external_score = 0.5  # Neutral if parsing fails
