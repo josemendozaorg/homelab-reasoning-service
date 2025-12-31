@@ -1,4 +1,5 @@
 """Configuration management for the reasoning service."""
+import os
 from pydantic_settings import BaseSettings
 
 
@@ -17,13 +18,17 @@ class Settings(BaseSettings):
     # API Configuration
     api_host: str = "0.0.0.0"
 
-    # Application Version (set REASONING_COMMIT_HASH in CI/CD or Docker build)
+    # Application Version
     app_version: str = "0.2.0"
-    commit_hash: str = "dev"
 
     class Config:
         env_prefix = "REASONING_"
         env_file = ".env"
+
+    @property
+    def commit_hash(self) -> str:
+        """Get commit hash from SOURCE_COMMIT (Coolify) or fallback to dev."""
+        return os.getenv("SOURCE_COMMIT", "dev")
 
 
 settings = Settings()
