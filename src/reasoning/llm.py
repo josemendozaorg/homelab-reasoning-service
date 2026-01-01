@@ -12,12 +12,19 @@ class OllamaClient:
         self.base_url = base_url
         self.model = model
     
-    async def generate(self, prompt: str, system: str = None, temperature: float = settings.temperature) -> str:
-        """Generate text using Ollama API."""
+    async def generate(self, prompt: str, system: str = None, temperature: float = settings.temperature, model: str = None) -> str:
+        """Generate text using Ollama API.
+
+        Args:
+            prompt: The prompt to generate from.
+            system: Optional system prompt.
+            temperature: Sampling temperature.
+            model: Optional model override (uses instance model if not specified).
+        """
         url = f"{self.base_url}/api/generate"
-        
+
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -25,10 +32,10 @@ class OllamaClient:
                 "num_ctx": settings.max_context_tokens
             }
         }
-        
+
         if system:
             payload["system"] = system
-            
+
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)
@@ -38,12 +45,18 @@ class OllamaClient:
                 logger.error(f"Ollama generation failed: {e}")
                 raise
 
-    async def chat(self, messages: list, temperature: float = settings.temperature) -> str:
-        """Chat using Ollama API."""
+    async def chat(self, messages: list, temperature: float = settings.temperature, model: str = None) -> str:
+        """Chat using Ollama API.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'.
+            temperature: Sampling temperature.
+            model: Optional model override (uses instance model if not specified).
+        """
         url = f"{self.base_url}/api/chat"
-        
+
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "stream": False,
             "options": {
@@ -51,7 +64,7 @@ class OllamaClient:
                 "num_ctx": settings.max_context_tokens
             }
         }
-        
+
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)
@@ -62,12 +75,19 @@ class OllamaClient:
                 logger.error(f"Ollama chat failed: {e}")
                 raise
 
-    async def generate_stream(self, prompt: str, system: str = None, temperature: float = settings.temperature):
-        """Stream text generation using Ollama API."""
+    async def generate_stream(self, prompt: str, system: str = None, temperature: float = settings.temperature, model: str = None):
+        """Stream text generation using Ollama API.
+
+        Args:
+            prompt: The prompt to generate from.
+            system: Optional system prompt.
+            temperature: Sampling temperature.
+            model: Optional model override (uses instance model if not specified).
+        """
         url = f"{self.base_url}/api/generate"
-        
+
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "prompt": prompt,
             "stream": True,
             "options": {
@@ -75,10 +95,10 @@ class OllamaClient:
                 "num_ctx": settings.max_context_tokens
             }
         }
-        
+
         if system:
             payload["system"] = system
-            
+
         async with httpx.AsyncClient() as client:
             try:
                 async with client.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -95,12 +115,18 @@ class OllamaClient:
                 logger.error(f"Ollama streaming generation failed: {e}")
                 raise
 
-    async def chat_stream(self, messages: list, temperature: float = settings.temperature):
-        """Stream chat using Ollama API."""
+    async def chat_stream(self, messages: list, temperature: float = settings.temperature, model: str = None):
+        """Stream chat using Ollama API.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'.
+            temperature: Sampling temperature.
+            model: Optional model override (uses instance model if not specified).
+        """
         url = f"{self.base_url}/api/chat"
-        
+
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "stream": True,
             "options": {
@@ -108,7 +134,7 @@ class OllamaClient:
                 "num_ctx": settings.max_context_tokens
             }
         }
-        
+
         async with httpx.AsyncClient() as client:
             try:
                 async with client.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -124,6 +150,12 @@ class OllamaClient:
             except Exception as e:
                 logger.error(f"Ollama streaming chat failed: {e}")
                 raise
+
+
+def get_model_from_config(config: dict) -> str:
+    """Extract model from LangGraph config, falling back to default."""
+    return config.get("configurable", {}).get("model") or settings.ollama_model
+
 
 # Global instance
 llm = OllamaClient()

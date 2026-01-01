@@ -122,3 +122,19 @@ class OllamaClient:
         except Exception as e:
             logger.warning(f"Ollama health check failed: {e}")
             return False
+
+    async def list_models(self) -> list[dict]:
+        """Fetch list of available models from Ollama.
+
+        Returns:
+            List of model info dicts with 'name', 'size', 'modified_at' etc.
+        """
+        try:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=10.0) as client:
+                response = await client.get("/api/tags")
+                response.raise_for_status()
+                data = response.json()
+                return data.get("models", [])
+        except Exception as e:
+            logger.warning(f"Failed to list models: {e}")
+            return []

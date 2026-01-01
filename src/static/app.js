@@ -5,8 +5,10 @@ const chatContainer = document.getElementById('chatContainer');
 const placeholder = document.getElementById('placeholder');
 const showTraceCheckbox = document.getElementById('showTrace');
 const appVersion = document.getElementById('appVersion');
+const modelSelect = document.getElementById('modelSelect');
 
 let chatHistory = []; // Local history state
+let selectedModel = localStorage.getItem('selectedModel') || null;
 
 // Initialize
 async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
@@ -40,6 +42,54 @@ async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
         console.error("Failed to fetch version:", e);
     }
 })();
+
+// Fetch available models and populate dropdown
+async function fetchModels() {
+    try {
+        const res = await fetchWithRetry('/v1/models');
+        const data = await res.json();
+
+        modelSelect.innerHTML = '';
+
+        if (data.models && data.models.length > 0) {
+            data.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.name;
+
+                // Mark default model
+                if (model.name === data.default) {
+                    option.textContent += ' (default)';
+                }
+
+                modelSelect.appendChild(option);
+            });
+
+            // Restore previous selection or use default
+            if (selectedModel && data.models.some(m => m.name === selectedModel)) {
+                modelSelect.value = selectedModel;
+            } else {
+                modelSelect.value = data.default;
+                selectedModel = data.default;
+            }
+        } else {
+            modelSelect.innerHTML = '<option value="">No models available</option>';
+        }
+
+    } catch (e) {
+        console.error("Failed to fetch models:", e);
+        modelSelect.innerHTML = '<option value="">Error loading models</option>';
+    }
+}
+
+// Save model selection on change
+modelSelect.addEventListener('change', () => {
+    selectedModel = modelSelect.value;
+    localStorage.setItem('selectedModel', selectedModel);
+});
+
+// Fetch models on page load
+fetchModels();
 
 // Auto-activate button & resize input
 queryInput.addEventListener('input', function () {
@@ -227,6 +277,7 @@ queryForm.addEventListener('submit', async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 query: query,
+                model: selectedModel,
                 max_iterations: 5,
                 history: chatHistory
             }),
