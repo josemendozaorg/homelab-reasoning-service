@@ -15,17 +15,24 @@ class OllamaClient:
         self,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        timeout: float = 300.0  # 5 minutes for reasoning tasks
+        timeout: float = 300.0,  # 5 minutes for reasoning tasks
+        api_key: Optional[str] = None
     ):
         self.base_url = base_url or settings.ollama_base_url
         self.model = model or settings.ollama_model
         self.timeout = timeout
+        self.api_key = api_key
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self):
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=httpx.Timeout(self.timeout)
+            timeout=httpx.Timeout(self.timeout),
+            headers=headers
         )
         return self
 
@@ -115,8 +122,12 @@ class OllamaClient:
         Returns:
             True if service is healthy, False otherwise.
         """
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0, headers=headers) as client:
                 response = await client.get("/")
                 return response.status_code == 200
         except Exception as e:
@@ -129,8 +140,12 @@ class OllamaClient:
         Returns:
             List of model info dicts with 'name', 'size', 'modified_at' etc.
         """
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=10.0) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=10.0, headers=headers) as client:
                 response = await client.get("/api/tags")
                 response.raise_for_status()
                 data = response.json()

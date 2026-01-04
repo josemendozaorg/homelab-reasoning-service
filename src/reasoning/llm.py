@@ -12,7 +12,7 @@ class OllamaClient:
         self.base_url = base_url
         self.model = model
     
-    async def generate(self, prompt: str, system: str = None, temperature: float = settings.temperature, model: str = None) -> str:
+    async def generate(self, prompt: str, system: str = None, temperature: float = settings.temperature, model: str = None, api_key: str = None) -> str:
         """Generate text using Ollama API.
 
         Args:
@@ -20,6 +20,7 @@ class OllamaClient:
             system: Optional system prompt.
             temperature: Sampling temperature.
             model: Optional model override (uses instance model if not specified).
+            api_key: Optional API key for authentication.
         """
         url = f"{self.base_url}/api/generate"
 
@@ -36,7 +37,11 @@ class OllamaClient:
         if system:
             payload["system"] = system
 
-        async with httpx.AsyncClient() as client:
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(headers=headers) as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)
                 response.raise_for_status()
@@ -45,13 +50,14 @@ class OllamaClient:
                 logger.error(f"Ollama generation failed: {e}")
                 raise
 
-    async def chat(self, messages: list, temperature: float = settings.temperature, model: str = None) -> str:
+    async def chat(self, messages: list, temperature: float = settings.temperature, model: str = None, api_key: str = None) -> str:
         """Chat using Ollama API.
 
         Args:
             messages: List of message dicts with 'role' and 'content'.
             temperature: Sampling temperature.
             model: Optional model override (uses instance model if not specified).
+            api_key: Optional API key for authentication.
         """
         url = f"{self.base_url}/api/chat"
 
@@ -65,7 +71,11 @@ class OllamaClient:
             }
         }
 
-        async with httpx.AsyncClient() as client:
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(headers=headers) as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)
                 response.raise_for_status()
@@ -75,7 +85,7 @@ class OllamaClient:
                 logger.error(f"Ollama chat failed: {e}")
                 raise
 
-    async def generate_stream(self, prompt: str, system: str = None, temperature: float = settings.temperature, model: str = None):
+    async def generate_stream(self, prompt: str, system: str = None, temperature: float = settings.temperature, model: str = None, api_key: str = None):
         """Stream text generation using Ollama API.
 
         Args:
@@ -83,6 +93,7 @@ class OllamaClient:
             system: Optional system prompt.
             temperature: Sampling temperature.
             model: Optional model override (uses instance model if not specified).
+            api_key: Optional API key for authentication.
         """
         url = f"{self.base_url}/api/generate"
 
@@ -99,7 +110,11 @@ class OllamaClient:
         if system:
             payload["system"] = system
 
-        async with httpx.AsyncClient() as client:
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(headers=headers) as client:
             try:
                 async with client.stream("POST", url, json=payload, timeout=60.0) as response:
                     response.raise_for_status()
@@ -115,13 +130,14 @@ class OllamaClient:
                 logger.error(f"Ollama streaming generation failed: {e}")
                 raise
 
-    async def chat_stream(self, messages: list, temperature: float = settings.temperature, model: str = None):
+    async def chat_stream(self, messages: list, temperature: float = settings.temperature, model: str = None, api_key: str = None):
         """Stream chat using Ollama API.
 
         Args:
             messages: List of message dicts with 'role' and 'content'.
             temperature: Sampling temperature.
             model: Optional model override (uses instance model if not specified).
+            api_key: Optional API key for authentication.
         """
         url = f"{self.base_url}/api/chat"
 
@@ -135,7 +151,11 @@ class OllamaClient:
             }
         }
 
-        async with httpx.AsyncClient() as client:
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(headers=headers) as client:
             try:
                 async with client.stream("POST", url, json=payload, timeout=60.0) as response:
                     response.raise_for_status()

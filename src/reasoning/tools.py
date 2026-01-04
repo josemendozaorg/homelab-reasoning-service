@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Literal
 import httpx
 from bs4 import BeautifulSoup
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 from langchain_core.runnables import RunnableConfig
 from langchain_core.callbacks import adispatch_custom_event

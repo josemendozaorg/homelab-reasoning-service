@@ -89,11 +89,17 @@
                         <input type="checkbox" id="showTrace" checked>
                         <span class="toggle-label">Show Reasoning Trace</span>
                     </label>
-                    <div class="model-selector">
-                        <label for="modelSelect">Model:</label>
-                        <select id="modelSelect" class="model-dropdown">
-                            <option value="">Loading...</option>
-                        </select>
+                    <div class="settings-group">
+                        <div class="api-key-input">
+                            <input type="password" id="apiKeyInput" placeholder="Ollama API Key (Optional)"
+                                title="Enter API Key for Cloud Models">
+                        </div>
+                        <div class="model-selector">
+                            <label for="modelSelect">Model:</label>
+                            <select id="modelSelect" class="model-dropdown">
+                                <option value="">Loading...</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             </form>

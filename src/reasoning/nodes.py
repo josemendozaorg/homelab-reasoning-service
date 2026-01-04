@@ -23,6 +23,10 @@ from .mcts import (
 
 logger = logging.getLogger(__name__)
 
+def get_api_key_from_config(config: RunnableConfig) -> str | None:
+    """Extract API key from LangGraph config."""
+    return config.get("configurable", {}).get("api_key")
+
 # Helper to wrap LLM calls with retry (now wraps coroutines)
 async def predict_with_retry(coro_func, *args, **kwargs):
     """Invoke LLM coroutine with retry logic."""
@@ -267,11 +271,12 @@ Final Answer: 9.9
         )
 
     try:
-        # Get model from config
+        # Get model and api_key from config
         model = get_model_from_config(config)
+        api_key = get_api_key_from_config(config)
 
         # Stream the response and dispatch tokens
-        async for token in llm.chat_stream(messages, model=model):
+        async for token in llm.chat_stream(messages, model=model, api_key=api_key):
             response_text += token
             # Dispatch token as custom event
             await adispatch_custom_event(
@@ -439,7 +444,9 @@ Critique these results."""
 
     try:
         model = get_model_from_config(config)
-        async for token in llm.chat_stream(messages, model=model):
+        api_key = get_api_key_from_config(config)
+
+        async for token in llm.chat_stream(messages, model=model, api_key=api_key):
             critique_text += token
             # Dispatch token as custom event
             await adispatch_custom_event(
@@ -570,11 +577,13 @@ async def generate_candidates_node(state: ReasoningState, config: RunnableConfig
     ]
 
     model = get_model_from_config(config)
+    api_key = get_api_key_from_config(config)
+
     for i in range(num_candidates):
         try:
             logger.info(f"Generating candidate {i+1}/{num_candidates}...")
             # Use higher temperature (0.7) for distinct paths
-            response_text = await llm.chat(messages, temperature=0.7, model=model)
+            response_text = await llm.chat(messages, temperature=0.7, model=model, api_key=api_key)
             
             reasoning, answer = parse_reasoning_response(response_text)
             
@@ -605,6 +614,8 @@ async def evaluate_candidates_node(state: ReasoningState, config: RunnableConfig
     logger.info(f"Evaluating {len(candidates)} candidates...")
 
     model = get_model_from_config(config)
+    api_key = get_api_key_from_config(config)
+
     for cand in candidates:
         try:
             # Judge prompt
@@ -630,7 +641,7 @@ async def evaluate_candidates_node(state: ReasoningState, config: RunnableConfig
             response = await llm.chat([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
-            ], temperature=0.1, model=model)  # Low temp for judging
+            ], temperature=0.1, model=model, api_key=api_key)  # Low temp for judging
             
             # Parse score
             score_match = re.search(r"Score:\s*(\d+(\.\d+)?)", response, re.IGNORECASE)
@@ -699,7 +710,9 @@ async def classify_query_node(state: ReasoningState, config: RunnableConfig) -> 
     - Multi-step reasoning
     - Questions requiring synthesis of multiple sources
     - Ambiguous or open-ended questions
-    """
+    - Technical questions requiring up-to-date documentation
+
+    Respond with ONLY one word: SIMPLE or COMPLEX"""
     from datetime import datetime
 
     now = datetime.now()
@@ -732,7 +745,9 @@ Respond with ONLY one word: SIMPLE or COMPLEX"""
 
     try:
         model = get_model_from_config(config)
-        response = await llm.chat(messages, temperature=0.1, model=model)
+        api_key = get_api_key_from_config(config)
+
+        response = await llm.chat(messages, temperature=0.1, model=model, api_key=api_key)
         response_upper = response.strip().upper()
 
         if "SIMPLE" in response_upper:
@@ -786,7 +801,9 @@ Important:
 
     try:
         model = get_model_from_config(config)
-        async for token in llm.chat_stream(messages, temperature=0.3, model=model):
+        api_key = get_api_key_from_config(config)
+
+        async for token in llm.chat_stream(messages, temperature=0.3, model=model, api_key=api_key):
             answer_text += token
             await adispatch_custom_event(
                 "token",
@@ -845,7 +862,9 @@ Objective: Create a concise, high-level step-by-step plan to answer the user's q
 
     try:
         model = get_model_from_config(config)
-        async for token in llm.chat_stream(messages, temperature=0.7, model=model):
+        api_key = get_api_key_from_config(config)
+
+        async for token in llm.chat_stream(messages, temperature=0.7, model=model, api_key=api_key):
             plan_text += token
             await adispatch_custom_event(
                 "token",
@@ -977,10 +996,11 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
 
     # Get model from config
     model = get_model_from_config(config)
+    api_key = get_api_key_from_config(config)
 
     # We use llm.chat (non-streaming) for parallel, as mixing streaming with gather is complex
     # Create N tasks
-    tasks = [llm.chat(messages, temperature=0.7, model=model) for _ in range(num_candidates)]
+    tasks = [llm.chat(messages, temperature=0.7, model=model, api_key=api_key) for _ in range(num_candidates)]
     
     try:
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1095,6 +1115,7 @@ async def mcts_reflect_node(state: ReasoningState, config: RunnableConfig) -> di
 
     # Get model from config
     model = get_model_from_config(config)
+    api_key = get_api_key_from_config(config)
 
     async def reflect_single(cid):
         child = tree_nodes[cid]
@@ -1129,7 +1150,7 @@ End with: QUALITY: [HIGH/MEDIUM/LOW]
 """
 
         try:
-            reflection = await llm.generate(reflection_prompt, temperature=0.3, model=model)
+            reflection = await llm.generate(reflection_prompt, temperature=0.3, model=model, api_key=api_key)
             child.reflection = reflection
 
             # Extract quality signal for scoring
@@ -1152,7 +1173,7 @@ And this claim/answer:
 Are the claims supported by the sources? Score 0.0-1.0.
 Output only a number."""
                 try:
-                    ext_score = await llm.generate(verification_prompt, temperature=0.1, model=model)
+                    ext_score = await llm.generate(verification_prompt, temperature=0.1, model=model, api_key=api_key)
                     child.external_score = min(1.0, max(0.0, float(ext_score.strip())))
                 except:
                     child.external_score = 0.5  # Neutral if parsing fails

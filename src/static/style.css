@@ -721,4 +721,32 @@ button[type="submit"]:not(:disabled):hover {
     100% {
         transform: translateY(0px);
     }
+}/* Add to existing style.css */
+
+.settings-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.api-key-input input {
+    background: var(--nb-bg-tertiary);
+    border: 1px solid var(--nb-border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    color: var(--nb-text-primary);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    width: 180px;
+    transition: all var(--transition-fast);
+}
+
+.api-key-input input:focus {
+    outline: none;
+    border-color: var(--nb-accent-primary);
+    width: 220px;
+}
+
+.api-key-input input::placeholder {
+    color: var(--nb-text-tertiary);
 }

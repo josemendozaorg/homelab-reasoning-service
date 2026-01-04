@@ -6,12 +6,36 @@ const placeholder = document.getElementById('placeholder');
 const showTraceCheckbox = document.getElementById('showTrace');
 const appVersion = document.getElementById('appVersion');
 const modelSelect = document.getElementById('modelSelect');
+const apiKeyInput = document.getElementById('apiKeyInput');
 
 let chatHistory = []; // Local history state
 let selectedModel = localStorage.getItem('selectedModel') || null;
 
+// Load API Key
+if (apiKeyInput) {
+    const savedKey = localStorage.getItem('ollamaApiKey');
+    if (savedKey) apiKeyInput.value = savedKey;
+
+    apiKeyInput.addEventListener('change', () => {
+        localStorage.setItem('ollamaApiKey', apiKeyInput.value.trim());
+    });
+}
+
+// Helper to add auth headers
+function getHeaders(baseHeaders = {}) {
+    const headers = { ...baseHeaders };
+    const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+    if (apiKey) {
+        headers['X-Ollama-Api-Key'] = apiKey;
+    }
+    return headers;
+}
+
 // Initialize
 async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
+    // Inject headers
+    options.headers = getHeaders(options.headers || {});
+
     try {
         const response = await fetch(url, options);
         // Retry on transient server errors (502, 503, 504)

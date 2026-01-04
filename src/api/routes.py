@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Header
 from sse_starlette.sse import EventSourceResponse
 import json
 import logging
 import time
 import asyncio
+from typing import Optional
 
 
 from src.config import settings
@@ -29,7 +30,10 @@ def get_reasoning_graph():
 
 
 @router.post("/v1/reason", response_model=ReasoningResponse)
-async def reason(request: ReasoningRequest) -> ReasoningResponse:
+async def reason(
+    request: ReasoningRequest,
+    x_ollama_api_key: Optional[str] = Header(None, alias="X-Ollama-Api-Key")
+) -> ReasoningResponse:
     """Submit a reasoning task with self-correction loop.
 
     The service will:
@@ -39,6 +43,7 @@ async def reason(request: ReasoningRequest) -> ReasoningResponse:
 
     Args:
         request: The reasoning request with query and optional parameters.
+        x_ollama_api_key: Optional API key for Ollama Cloud.
 
     Returns:
         The reasoning response with trace, final answer, and metadata.
@@ -57,7 +62,13 @@ async def reason(request: ReasoningRequest) -> ReasoningResponse:
     graph = get_reasoning_graph()
 
     try:
-        result = await graph.ainvoke(initial_state)
+        config = {
+            "configurable": {
+                "model": request.model or settings.ollama_model,
+                "api_key": x_ollama_api_key
+            }
+        }
+        result = await graph.ainvoke(initial_state, config=config)
     except Exception as e:
         logger.error(f"Reasoning failed: {e}")
         raise HTTPException(
@@ -79,14 +90,16 @@ async def reason(request: ReasoningRequest) -> ReasoningResponse:
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
+async def health_check(
+    x_ollama_api_key: Optional[str] = Header(None, alias="X-Ollama-Api-Key")
+) -> HealthResponse:
     """Check service health and Ollama connectivity.
 
     Returns:
         Health status including model configuration and Ollama connection state.
     """
     # Check Ollama connectivity
-    client = OllamaClient()
+    client = OllamaClient(api_key=x_ollama_api_key)
     ollama_connected = await client.health_check()
 
     return HealthResponse(
@@ -96,13 +109,15 @@ async def health_check() -> HealthResponse:
     )
 
 @router.get("/v1/models", response_model=ModelsResponse)
-async def list_models() -> ModelsResponse:
+async def list_models(
+    x_ollama_api_key: Optional[str] = Header(None, alias="X-Ollama-Api-Key")
+) -> ModelsResponse:
     """List available Ollama models.
 
     Returns:
         List of models with their metadata and the default model.
     """
-    client = OllamaClient()
+    client = OllamaClient(api_key=x_ollama_api_key)
     models = await client.list_models()
 
     return ModelsResponse(
@@ -119,12 +134,14 @@ async def list_models() -> ModelsResponse:
 
 
 @router.post("/v1/test-inference", response_model=TestInferenceResponse)
-async def test_inference() -> TestInferenceResponse:
+async def test_inference(
+    x_ollama_api_key: Optional[str] = Header(None, alias="X-Ollama-Api-Key")
+) -> TestInferenceResponse:
     """Run a fast inference check (max 10 tokens)."""
     start_time = time.time()
     
     try:
-        async with OllamaClient() as client:
+        async with OllamaClient(api_key=x_ollama_api_key) as client:
             response = await client.generate(
                 prompt="Say hello!",
                 max_tokens=10,
@@ -148,7 +165,11 @@ async def test_inference() -> TestInferenceResponse:
 
 
 @router.post("/v1/reason/stream")
-async def reason_stream(request: ReasoningRequest, req: Request):
+async def reason_stream(
+    request: ReasoningRequest,
+    req: Request,
+    x_ollama_api_key: Optional[str] = Header(None, alias="X-Ollama-Api-Key")
+):
     """Stream reasoning progress using Server-Sent Events (SSE)."""
 
     async def event_generator():
@@ -165,7 +186,10 @@ async def reason_stream(request: ReasoningRequest, req: Request):
             try:
                 config = {
                     "recursion_limit": 150,
-                    "configurable": {"model": model}
+                    "configurable": {
+                        "model": model,
+                        "api_key": x_ollama_api_key
+                    }
                 }
                 async for event in graph.astream_events(initial_state, version="v2", config=config):
                     await queue.put({"type": "event", "payload": event})
