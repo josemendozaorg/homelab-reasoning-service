@@ -39,7 +39,10 @@ class OllamaClient:
 
         headers = {}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            if api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = api_key
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
 
         logger.info(f"Ollama Request Headers: {list(headers.keys())}")
         if "Authorization" in headers:
@@ -80,7 +83,10 @@ class OllamaClient:
 
         headers = {}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            if api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = api_key
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
 
         logger.info(f"Ollama Chat Request Headers: {list(headers.keys())}")
         if "Authorization" in headers:
@@ -126,7 +132,14 @@ class OllamaClient:
 
         headers = {}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            if api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = api_key
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
+            if api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = api_key
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
 
         async with httpx.AsyncClient(headers=headers) as client:
             try:

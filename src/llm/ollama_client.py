@@ -27,7 +27,11 @@ class OllamaClient:
     async def __aenter__(self):
         headers = {}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            # Smart prefix: Don't double-wrap if user provided Bearer/Basic
+            if self.api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = self.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.api_key}"
 
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -124,7 +128,10 @@ class OllamaClient:
         """
         headers = {}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            if self.api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = self.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0, headers=headers) as client:
@@ -142,7 +149,10 @@ class OllamaClient:
         """
         headers = {}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            if self.api_key.lower().startswith(("bearer ", "basic ")):
+                headers["Authorization"] = self.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=10.0, headers=headers) as client:
