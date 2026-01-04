@@ -41,11 +41,16 @@ class OllamaClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        logger.debug(f"Ollama Request Headers: {list(headers.keys())}")
+        logger.info(f"Ollama Request Headers: {list(headers.keys())}")
+        if "Authorization" in headers:
+            safe_key = headers["Authorization"][:15] + "..." if len(headers["Authorization"]) > 15 else "SHORT"
+            logger.info(f"Ollama Auth Header: {safe_key}")
 
         async with httpx.AsyncClient(headers=headers) as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)
+                if response.is_error:
+                    logger.error(f"Ollama Error Response: {response.text}")
                 response.raise_for_status()
                 return response.json().get("response", "")
             except Exception as e:
@@ -77,9 +82,16 @@ class OllamaClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        logger.info(f"Ollama Chat Request Headers: {list(headers.keys())}")
+        if "Authorization" in headers:
+            safe_key = headers["Authorization"][:15] + "..." if len(headers["Authorization"]) > 15 else "SHORT"
+            logger.info(f"Ollama Chat Auth Header: {safe_key}")
+
         async with httpx.AsyncClient(headers=headers) as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)
+                if response.is_error:
+                    logger.error(f"Ollama Chat Error Response: {response.text}")
                 response.raise_for_status()
                 # Ollama chat response structure
                 return response.json().get("message", {}).get("content", "")
