@@ -998,6 +998,8 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     model = get_model_from_config(config)
     api_key = get_api_key_from_config(config)
 
+    logger.info(f"MCTS Expand: Config API Key present: {bool(api_key)}")
+
     # We use llm.chat (non-streaming) for parallel, as mixing streaming with gather is complex
     # Create N tasks
     tasks = [llm.chat(messages, temperature=0.7, model=model, api_key=api_key) for _ in range(num_candidates)]

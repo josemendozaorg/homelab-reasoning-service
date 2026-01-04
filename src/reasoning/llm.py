@@ -41,6 +41,8 @@ class OllamaClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        logger.debug(f"Ollama Request Headers: {list(headers.keys())}")
+
         async with httpx.AsyncClient(headers=headers) as client:
             try:
                 response = await client.post(url, json=payload, timeout=60.0)

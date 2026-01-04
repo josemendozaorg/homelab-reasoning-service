@@ -36,6 +36,8 @@ async def reason(
 ) -> ReasoningResponse:
     """Submit a reasoning task with self-correction loop.
 
+    logger.info(f"API Key present: {bool(x_ollama_api_key)}")
+
     The service will:
     1. Generate initial reasoning using DeepSeek-R1's <think> tokens
     2. Critique the answer for logical errors
@@ -171,6 +173,8 @@ async def reason_stream(
     x_ollama_api_key: Optional[str] = Header(None, alias="X-Ollama-Api-Key")
 ):
     """Stream reasoning progress using Server-Sent Events (SSE)."""
+
+    logger.info(f"Stream API Key present: {bool(x_ollama_api_key)}")
 
     async def event_generator():
         # Use requested model or fall back to default
