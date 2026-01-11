@@ -410,7 +410,16 @@ async def perform_web_search(
                 if config:
                     await adispatch_custom_event(
                         "tool_io",
-                        {"type": "search_result", "count": len(results)},
+                        {
+                            "type": "search_result",
+                            "query": query,
+                            "count": len(results),
+                            "provider": provider,
+                            "results": [
+                                {"title": r.get("title"), "url": r.get("href") or r.get("url")}
+                                for r in results[:5]
+                            ]
+                        },
                         config=config
                     )
 

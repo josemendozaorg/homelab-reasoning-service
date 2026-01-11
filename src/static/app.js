@@ -180,6 +180,7 @@ function createMessageElement(role, content = '') {
         // Assistant Message Structure:
         // 1. Trace Wrapper (Thinking)
         // 2. Message Bubble (Final Answer)
+        // 3. Sources Panel (Hidden initially)
 
         // 1. Trace Wrapper
         const traceWrapper = document.createElement('div');
@@ -202,12 +203,41 @@ function createMessageElement(role, content = '') {
         const bubble = document.createElement('div');
         bubble.className = 'message-bubble prose hidden';
         msgDiv.appendChild(bubble);
+
+        // 3. Sources Panel
+        const sourcesPanel = document.createElement('div');
+        sourcesPanel.className = 'sources-panel hidden';
+        sourcesPanel.innerHTML = `
+            <div class="sources-header" onclick="toggleSources(this)">
+                <div class="sources-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <span>Sources & Search Data</span>
+                </div>
+                <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 9l6 6 6-6" />
+                </svg>
+            </div>
+            <div class="sources-content"></div>
+        `;
+        msgDiv.appendChild(sourcesPanel);
     }
     return msgDiv;
 }
 
 // Global scope for onclick handler in HTML string
 window.toggleTrace = function (headerElement) {
+    const content = headerElement.nextElementSibling;
+    const chevron = headerElement.querySelector('.chevron');
+
+    headerElement.classList.toggle('expanded');
+    content.classList.toggle('expanded');
+    chevron.classList.toggle('rotate-180');
+};
+
+window.toggleSources = function (headerElement) {
     const content = headerElement.nextElementSibling;
     const chevron = headerElement.querySelector('.chevron');
 
@@ -399,6 +429,8 @@ queryForm.addEventListener('submit', async (e) => {
     const traceWrapper = assistantMsg.querySelector('.trace-wrapper');
     const traceContent = assistantMsg.querySelector('.trace-content');
     const answerBubble = assistantMsg.querySelector('.message-bubble');
+    const sourcesPanel = assistantMsg.querySelector('.sources-panel'); // New
+    const sourcesContent = assistantMsg.querySelector('.sources-content'); // New
     const pulse = assistantMsg.querySelector('.thinking-pulse');
 
     // Helper: Mark trace as finished
@@ -492,19 +524,7 @@ queryForm.addEventListener('submit', async (e) => {
 
                         // 1. Handle Done Signal
                         if (currentEvent === 'done') {
-                            // Break the outer loop handled by flag or just break here if careful
-                            // Ideally set a flag to break outer loop
-                            // For now, we rely on the loop finishing naturally, but if 'done' implies immediate stop:
-                            // We can use a label or verify done logic
-                            // Actually, let's just break the stream loop
-                            // Note: breaking the inner 'lines' loop isn't enough. We need to break "while (true)"
-                            // We'll throw an exception or set a flag?
-                            // Easiest is to set reader cancelled?
-                            // Let's just break; this breaks 'for lines', but we need to break 'while'.
-                            // Let's use a flag.
-                            // Wait, 'done' event means stream is finished from server side logic perspective,
-                            // but the HTTP stream might close shortly after.
-                            // Let's handle it gracefully.
+                            // ...
                         }
 
                         // 2. Handle Ping (keep-alive)
@@ -513,7 +533,43 @@ queryForm.addEventListener('submit', async (e) => {
                         }
 
                         // 3. Handle Token Streaming
-                        // The backend sends `yield {"data": ...}` which usually defaults to message event.
+                        else if (currentEvent === 'tool_io') {
+                            try {
+                                const toolData = JSON.parse(currentData);
+                                if (toolData.type === 'search_result') {
+                                    // Make Sources Panel Visible
+                                    sourcesPanel.classList.remove('hidden');
+
+                                    // Create Search Card
+                                    const card = document.createElement('div');
+                                    card.className = 'search-card';
+
+                                    const provider = toolData.provider || 'unknown';
+                                    const query = toolData.query || 'Unknown Query';
+                                    const count = toolData.count || 0;
+                                    const results = toolData.results || [];
+
+                                    let resultsHtml = '';
+                                    results.forEach(res => {
+                                        resultsHtml += `<li class="search-result-item"><a href="${res.url}" target="_blank" title="${res.title}">${res.title}</a></li>`;
+                                    });
+
+                                    card.innerHTML = `
+                                        <div class="search-card-header">
+                                            <span class="provider-badge ${provider}">${provider}</span>
+                                            <span style="font-size: 0.7rem; color: #71717a;">${count} results</span>
+                                        </div>
+                                        <div class="search-query">"${query}"</div>
+                                        <ul class="search-results-list">
+                                            ${resultsHtml}
+                                        </ul>
+                                    `;
+
+                                    sourcesContent.appendChild(card);
+                                }
+                            } catch (e) { console.warn("Tool IO Parse Error:", e); }
+                        }
+
                         else {
                             try {
                                 const data = JSON.parse(currentData);
