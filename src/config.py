@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     # Ollama Configuration
     ollama_base_url: str = "http://192.168.0.140:11434"
     ollama_model: str = "deepseek-r1:14b"
-    ollama_fast_model: str = "llama3.2:3b"  # Default fast model
+    ollama_fast_model: str = "mistral:latest"  # Default fast model
 
     # Reasoning Configuration
     max_reasoning_iterations: int = 5
