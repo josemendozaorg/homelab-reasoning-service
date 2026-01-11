@@ -32,6 +32,9 @@
     --nb-fast-color: #34d399; /* Emerald 400 */
     --nb-fast-bg: rgba(16, 185, 129, 0.15);
 
+    --nb-search-color: #38bdf8; /* Sky 400 */
+    --nb-search-bg: rgba(14, 165, 233, 0.15);
+
     /* Typography */
     --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -385,6 +388,14 @@ body {
     color: var(--nb-fast-color);
 }
 
+.model-pill.search-theme {
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+.model-pill.search-theme .model-icon {
+    color: var(--nb-search-color);
+}
+
 .model-icon {
     display: grid;
     place-items: center;
@@ -429,6 +440,26 @@ body {
 .model-dropdown-clean option {
     background: var(--nb-bg-secondary);
     color: var(--nb-text-primary);
+}
+
+/* Pill Action Button (Quick Settings) */
+.pill-action-btn {
+    background: transparent;
+    border: none;
+    color: var(--nb-text-tertiary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: -4px;
+    transition: all 0.2s;
+}
+
+.pill-action-btn:hover {
+    background: var(--nb-bg-tertiary);
+    color: var(--nb-text-secondary);
 }
 
 /* Compact Toggle */

@@ -10,10 +10,12 @@ const fastModelSelect = document.getElementById('fastModelSelect');
 
 // Settings Elements
 const settingsBtn = document.getElementById('settingsBtn');
+const quickSettingsBtn = document.getElementById('quickSettingsBtn'); // New button inside pill
 const settingsModal = document.getElementById('settingsModal');
 const closeSettings = document.getElementById('closeSettings');
 const saveSettingsBtn = document.getElementById('saveSettings');
 const searchProviderSelect = document.getElementById('searchProvider');
+const searchProviderPill = document.getElementById('searchProviderPill'); // New pill dropdown
 
 const tavilyConfig = document.getElementById('tavilyConfig');
 const braveConfig = document.getElementById('braveConfig');
@@ -233,7 +235,10 @@ function loadSettings() {
     const googleKey = localStorage.getItem('search_api_key_google') || '';
     const googleCse = localStorage.getItem('search_cse_id_google') || '';
 
+    // Sync both dropdowns
     searchProviderSelect.value = provider;
+    searchProviderPill.value = provider;
+
     tavilyKeyInput.value = tavilyKey;
     braveKeyInput.value = braveKey;
     googleKeyInput.value = googleKey;
@@ -252,14 +257,51 @@ function updateSettingsUI(provider) {
     if (provider === 'google') googleConfig.classList.remove('hidden');
 }
 
+// Handle Modal Dropdown Change
 searchProviderSelect.addEventListener('change', (e) => {
-    updateSettingsUI(e.target.value);
+    const provider = e.target.value;
+    updateSettingsUI(provider);
+    searchProviderPill.value = provider; // Sync Pill
+    localStorage.setItem('search_provider', provider); // Auto-save selection
 });
 
+// Handle Pill Dropdown Change
+searchProviderPill.addEventListener('change', (e) => {
+    const provider = e.target.value;
+    searchProviderSelect.value = provider; // Sync Modal
+    updateSettingsUI(provider);
+    localStorage.setItem('search_provider', provider); // Auto-save selection
+
+    // Auto-prompt for key if missing
+    checkKeyAndPrompt(provider);
+});
+
+function checkKeyAndPrompt(provider) {
+    let missingKey = false;
+    if (provider === 'tavily' && !localStorage.getItem('search_api_key_tavily')) missingKey = true;
+    if (provider === 'brave' && !localStorage.getItem('search_api_key_brave')) missingKey = true;
+    if (provider === 'google' && (!localStorage.getItem('search_api_key_google') || !localStorage.getItem('search_cse_id_google'))) missingKey = true;
+
+    if (missingKey) {
+        // Open modal to prompt user
+        loadSettings(); // Refresh fields
+        settingsModal.classList.remove('hidden');
+        // Maybe highlight the specific section?
+    }
+}
+
+// Open Modal Buttons
 settingsBtn.addEventListener('click', () => {
     loadSettings();
     settingsModal.classList.remove('hidden');
 });
+
+if (quickSettingsBtn) {
+    quickSettingsBtn.addEventListener('click', () => {
+        loadSettings();
+        settingsModal.classList.remove('hidden');
+    });
+}
 
 closeSettings.addEventListener('click', () => {
     settingsModal.classList.add('hidden');
@@ -281,6 +323,9 @@ saveSettingsBtn.addEventListener('click', () => {
     if (googleKeyInput.value) localStorage.setItem('search_api_key_google', googleKeyInput.value);
     if (googleCseIdInput.value) localStorage.setItem('search_cse_id_google', googleCseIdInput.value);
 
+    // Sync pill again just in case
+    searchProviderPill.value = provider;
+
     settingsModal.classList.add('hidden');
 });
 
@@ -298,6 +343,9 @@ function getSearchConfig() {
 
     return { provider, apiKey, cseId };
 }
+
+// Initial Load
+loadSettings();
 
 
 // Submit handler
