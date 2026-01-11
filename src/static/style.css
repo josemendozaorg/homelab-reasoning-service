@@ -822,3 +822,198 @@ button[type="submit"]:not(:disabled):hover {
         transform: translateY(0px);
     }
 }
+
+/*
+   =============================================================================
+   SETTINGS MODAL
+   =============================================================================
+*/
+
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+}
+
+.modal-backdrop.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.modal-content {
+    background: var(--nb-bg-secondary);
+    border: 1px solid var(--nb-border-subtle);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 500px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    animation: modalSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalSlideUp {
+    from { transform: translateY(20px) scale(0.95); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--nb-border-subtle);
+}
+
+.modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--nb-text-primary);
+}
+
+.close-button {
+    background: transparent;
+    border: none;
+    color: var(--nb-text-tertiary);
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: color 0.2s;
+}
+
+.close-button:hover {
+    color: var(--nb-text-primary);
+}
+
+.modal-body {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.settings-group h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--nb-text-primary);
+    margin-bottom: var(--spacing-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.settings-description {
+    font-size: 0.85rem;
+    color: var(--nb-text-secondary);
+    margin-bottom: var(--spacing-md);
+}
+
+.full-width-select {
+    width: 100%;
+    background: var(--nb-bg-tertiary);
+    border: 1px solid var(--nb-border-subtle);
+    color: var(--nb-text-primary);
+    padding: 10px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.full-width-select:focus {
+    border-color: var(--nb-accent-primary);
+}
+
+.api-input {
+    width: 100%;
+    background: var(--nb-bg-tertiary);
+    border: 1px solid var(--nb-border-subtle);
+    color: var(--nb-text-primary);
+    padding: 10px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.api-input:focus {
+    border-color: var(--nb-accent-primary);
+}
+
+.settings-group label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--nb-text-secondary);
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+.settings-hint {
+    font-size: 0.8rem;
+    color: var(--nb-text-tertiary);
+    margin-top: 8px;
+}
+
+.settings-hint a {
+    color: var(--nb-accent-primary);
+    text-decoration: none;
+}
+
+.settings-hint a:hover {
+    text-decoration: underline;
+}
+
+.modal-footer {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-top: 1px solid var(--nb-border-subtle);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.primary-button {
+    background: var(--nb-accent-primary);
+    color: white;
+    border: none;
+    padding: 8px 24px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.primary-button:hover {
+    background: var(--nb-accent-hover);
+}
+
+.icon-button {
+    background: transparent;
+    border: none;
+    color: var(--nb-text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: var(--radius-full);
+    transition: all 0.2s;
+    display: grid;
+    place-items: center;
+}
+
+.icon-button:hover {
+    color: var(--nb-text-primary);
+    background: var(--nb-bg-tertiary);
+}

@@ -8,6 +8,23 @@ const appVersion = document.getElementById('appVersion');
 const modelSelect = document.getElementById('modelSelect');
 const fastModelSelect = document.getElementById('fastModelSelect');
 
+// Settings Elements
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettings = document.getElementById('closeSettings');
+const saveSettingsBtn = document.getElementById('saveSettings');
+const searchProviderSelect = document.getElementById('searchProvider');
+
+const tavilyConfig = document.getElementById('tavilyConfig');
+const braveConfig = document.getElementById('braveConfig');
+const googleConfig = document.getElementById('googleConfig');
+
+const tavilyKeyInput = document.getElementById('tavilyKey');
+const braveKeyInput = document.getElementById('braveKey');
+const googleKeyInput = document.getElementById('googleKey');
+const googleCseIdInput = document.getElementById('googleCseId');
+
+
 let chatHistory = []; // Local history state
 let selectedModel = localStorage.getItem('selectedModel') || null;
 let selectedFastModel = localStorage.getItem('selectedFastModel') || null;
@@ -205,6 +222,84 @@ marked.setOptions({
     }
 });
 
+// =============================================================================
+// SETTINGS LOGIC
+// =============================================================================
+
+function loadSettings() {
+    const provider = localStorage.getItem('search_provider') || 'ddg';
+    const tavilyKey = localStorage.getItem('search_api_key_tavily') || '';
+    const braveKey = localStorage.getItem('search_api_key_brave') || '';
+    const googleKey = localStorage.getItem('search_api_key_google') || '';
+    const googleCse = localStorage.getItem('search_cse_id_google') || '';
+
+    searchProviderSelect.value = provider;
+    tavilyKeyInput.value = tavilyKey;
+    braveKeyInput.value = braveKey;
+    googleKeyInput.value = googleKey;
+    googleCseIdInput.value = googleCse;
+
+    updateSettingsUI(provider);
+}
+
+function updateSettingsUI(provider) {
+    tavilyConfig.classList.add('hidden');
+    braveConfig.classList.add('hidden');
+    googleConfig.classList.add('hidden');
+
+    if (provider === 'tavily') tavilyConfig.classList.remove('hidden');
+    if (provider === 'brave') braveConfig.classList.remove('hidden');
+    if (provider === 'google') googleConfig.classList.remove('hidden');
+}
+
+searchProviderSelect.addEventListener('change', (e) => {
+    updateSettingsUI(e.target.value);
+});
+
+settingsBtn.addEventListener('click', () => {
+    loadSettings();
+    settingsModal.classList.remove('hidden');
+});
+
+closeSettings.addEventListener('click', () => {
+    settingsModal.classList.add('hidden');
+});
+
+// Close on backdrop click
+settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+        settingsModal.classList.add('hidden');
+    }
+});
+
+saveSettingsBtn.addEventListener('click', () => {
+    const provider = searchProviderSelect.value;
+    localStorage.setItem('search_provider', provider);
+
+    if (tavilyKeyInput.value) localStorage.setItem('search_api_key_tavily', tavilyKeyInput.value);
+    if (braveKeyInput.value) localStorage.setItem('search_api_key_brave', braveKeyInput.value);
+    if (googleKeyInput.value) localStorage.setItem('search_api_key_google', googleKeyInput.value);
+    if (googleCseIdInput.value) localStorage.setItem('search_cse_id_google', googleCseIdInput.value);
+
+    settingsModal.classList.add('hidden');
+});
+
+function getSearchConfig() {
+    const provider = localStorage.getItem('search_provider') || 'ddg';
+    let apiKey = null;
+    let cseId = null;
+
+    if (provider === 'tavily') apiKey = localStorage.getItem('search_api_key_tavily');
+    if (provider === 'brave') apiKey = localStorage.getItem('search_api_key_brave');
+    if (provider === 'google') {
+        apiKey = localStorage.getItem('search_api_key_google');
+        cseId = localStorage.getItem('search_cse_id_google');
+    }
+
+    return { provider, apiKey, cseId };
+}
+
+
 // Submit handler
 queryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -310,6 +405,8 @@ queryForm.addEventListener('submit', async (e) => {
     let currentData = null;
 
     try {
+        const searchConfig = getSearchConfig();
+
         const response = await fetchWithRetry('/v1/reason/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -318,7 +415,10 @@ queryForm.addEventListener('submit', async (e) => {
                 model: selectedModel,
                 fast_model: selectedFastModel, // Send fast model
                 max_iterations: 5,
-                history: chatHistory
+                history: chatHistory,
+                search_provider: searchConfig.provider,
+                search_api_key: searchConfig.apiKey,
+                search_cse_id: searchConfig.cseId
             }),
             signal: signal
         });

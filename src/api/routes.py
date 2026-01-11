@@ -169,7 +169,10 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                     "recursion_limit": 150,
                     "configurable": {
                         "model": model,
-                        "fast_model": fast_model
+                        "fast_model": fast_model,
+                        "search_provider": request.search_provider,
+                        "search_api_key": request.search_api_key,
+                        "search_cse_id": request.search_cse_id
                     }
                 }
                 async for event in graph.astream_events(initial_state, version="v2", config=config):
