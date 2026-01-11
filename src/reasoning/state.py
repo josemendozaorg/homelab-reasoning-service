@@ -14,6 +14,7 @@ class ReasoningState(TypedDict):
         is_complete: Whether reasoning is complete.
         final_answer: The final approved answer.
         model: The model to use for this reasoning task.
+        fast_model: The model to use for fast execution tasks.
     """
     query: str
     reasoning_trace: list[str]
@@ -25,6 +26,7 @@ class ReasoningState(TypedDict):
     chat_history: list[dict]
     pending_search_query: Optional[str]
     model: Optional[str]  # Model to use for this reasoning task
+    fast_model: Optional[str] # Model to use for fast execution tasks
     # Phase 2: Best-of-N Support
     candidates: list[dict]
     verification_scores: list[dict]
@@ -44,13 +46,14 @@ class ReasoningState(TypedDict):
     query_complexity: Optional[str]  # "simple" or "complex" - determines fast/deep path
 
 
-def create_initial_state(query: str, history: list[dict] = [], model: str = None) -> ReasoningState:
+def create_initial_state(query: str, history: list[dict] = [], model: str = None, fast_model: str = None) -> ReasoningState:
     """Create the initial state for a reasoning task.
 
     Args:
         query: The question or problem to reason about.
         history: Previous conversation history.
         model: The model to use for this reasoning task.
+        fast_model: The model to use for fast execution tasks.
 
     Returns:
         Initial ReasoningState with empty trace and no answer.
@@ -66,6 +69,7 @@ def create_initial_state(query: str, history: list[dict] = [], model: str = None
         chat_history=history,
         pending_search_query=None,
         model=model,
+        fast_model=fast_model,
         candidates=[],
         verification_scores=[],
         best_candidate=None,

@@ -6,9 +6,11 @@ const placeholder = document.getElementById('placeholder');
 const showTraceCheckbox = document.getElementById('showTrace');
 const appVersion = document.getElementById('appVersion');
 const modelSelect = document.getElementById('modelSelect');
+const fastModelSelect = document.getElementById('fastModelSelect');
 
 let chatHistory = []; // Local history state
 let selectedModel = localStorage.getItem('selectedModel') || null;
+let selectedFastModel = localStorage.getItem('selectedFastModel') || null;
 
 // Initialize
 async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
@@ -50,8 +52,10 @@ async function fetchModels() {
         const data = await res.json();
 
         modelSelect.innerHTML = '';
+        fastModelSelect.innerHTML = '';
 
         if (data.models && data.models.length > 0) {
+            // Populate Smart Model Dropdown
             data.models.forEach(model => {
                 const option = document.createElement('option');
                 option.value = model.name;
@@ -65,20 +69,48 @@ async function fetchModels() {
                 modelSelect.appendChild(option);
             });
 
-            // Restore previous selection or use default
+            // Populate Fast Model Dropdown
+            data.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.name;
+
+                // Mark default fast model
+                if (model.name === data.default_fast) {
+                    option.textContent += ' (default)';
+                }
+
+                fastModelSelect.appendChild(option);
+            });
+
+
+            // Restore previous selection or use default for Smart Model
             if (selectedModel && data.models.some(m => m.name === selectedModel)) {
                 modelSelect.value = selectedModel;
             } else {
                 modelSelect.value = data.default;
                 selectedModel = data.default;
             }
+
+            // Restore previous selection or use default for Fast Model
+             if (selectedFastModel && data.models.some(m => m.name === selectedFastModel)) {
+                fastModelSelect.value = selectedFastModel;
+            } else {
+                // Use default_fast from API if available, else fallback to main default
+                const defaultFast = data.default_fast || data.default;
+                fastModelSelect.value = defaultFast;
+                selectedFastModel = defaultFast;
+            }
+
         } else {
             modelSelect.innerHTML = '<option value="">No models available</option>';
+            fastModelSelect.innerHTML = '<option value="">No models available</option>';
         }
 
     } catch (e) {
         console.error("Failed to fetch models:", e);
         modelSelect.innerHTML = '<option value="">Error loading models</option>';
+        fastModelSelect.innerHTML = '<option value="">Error loading models</option>';
     }
 }
 
@@ -87,6 +119,12 @@ modelSelect.addEventListener('change', () => {
     selectedModel = modelSelect.value;
     localStorage.setItem('selectedModel', selectedModel);
 });
+
+fastModelSelect.addEventListener('change', () => {
+    selectedFastModel = fastModelSelect.value;
+    localStorage.setItem('selectedFastModel', selectedFastModel);
+});
+
 
 // Fetch models on page load
 fetchModels();
@@ -278,6 +316,7 @@ queryForm.addEventListener('submit', async (e) => {
             body: JSON.stringify({
                 query: query,
                 model: selectedModel,
+                fast_model: selectedFastModel, // Send fast model
                 max_iterations: 5,
                 history: chatHistory
             }),

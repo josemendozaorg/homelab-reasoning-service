@@ -114,7 +114,8 @@ async def list_models() -> ModelsResponse:
             )
             for m in models
         ],
-        default=settings.ollama_model
+        default=settings.ollama_model,
+        default_fast=settings.ollama_fast_model
     )
 
 
@@ -154,9 +155,10 @@ async def reason_stream(request: ReasoningRequest, req: Request):
     async def event_generator():
         # Use requested model or fall back to default
         model = request.model or settings.ollama_model
+        fast_model = request.fast_model or settings.ollama_fast_model
 
         # Create initial state
-        initial_state = create_initial_state(request.query, request.history, model=model)
+        initial_state = create_initial_state(request.query, request.history, model=model, fast_model=fast_model)
         graph = get_reasoning_graph()
         
         queue = asyncio.Queue()
@@ -165,7 +167,10 @@ async def reason_stream(request: ReasoningRequest, req: Request):
             try:
                 config = {
                     "recursion_limit": 150,
-                    "configurable": {"model": model}
+                    "configurable": {
+                        "model": model,
+                        "fast_model": fast_model
+                    }
                 }
                 async for event in graph.astream_events(initial_state, version="v2", config=config):
                     await queue.put({"type": "event", "payload": event})

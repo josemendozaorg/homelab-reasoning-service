@@ -41,6 +41,9 @@ async def predict_with_retry(coro_func, *args, **kwargs):
                 logger.error(f"LLM invocation failed: {e}")
                 raise
 
+def get_fast_model_from_config(config: dict) -> str:
+    """Extract fast model from LangGraph config, falling back to default."""
+    return config.get("configurable", {}).get("fast_model") or settings.ollama_fast_model
 
 def parse_reasoning_response(response: str) -> tuple[str, str]:
     """Parse a response to extract reasoning and answer.
@@ -569,7 +572,7 @@ async def generate_candidates_node(state: ReasoningState, config: RunnableConfig
         {"role": "user", "content": user_content}
     ]
 
-    model = get_model_from_config(config)
+    model = get_fast_model_from_config(config)
     for i in range(num_candidates):
         try:
             logger.info(f"Generating candidate {i+1}/{num_candidates}...")
@@ -699,7 +702,9 @@ async def classify_query_node(state: ReasoningState, config: RunnableConfig) -> 
     - Multi-step reasoning
     - Questions requiring synthesis of multiple sources
     - Ambiguous or open-ended questions
-    """
+    - Technical questions requiring up-to-date documentation
+
+    Respond with ONLY one word: SIMPLE or COMPLEX"""
     from datetime import datetime
 
     now = datetime.now()
@@ -785,7 +790,7 @@ Important:
     logger.info("Fast path: Generating quick answer...")
 
     try:
-        model = get_model_from_config(config)
+        model = get_fast_model_from_config(config)
         async for token in llm.chat_stream(messages, temperature=0.3, model=model):
             answer_text += token
             await adispatch_custom_event(
@@ -976,7 +981,7 @@ async def mcts_expand_node(state: ReasoningState, config: RunnableConfig) -> dic
     logger.info(f"MCTS Expand: Generating {num_candidates} parallel candidates (adaptive)...")
 
     # Get model from config
-    model = get_model_from_config(config)
+    model = get_fast_model_from_config(config)
 
     # We use llm.chat (non-streaming) for parallel, as mixing streaming with gather is complex
     # Create N tasks

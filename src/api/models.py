@@ -15,6 +15,10 @@ class ReasoningRequest(BaseModel):
         default=None,
         description="Model to use for reasoning (defaults to server configuration)"
     )
+    fast_model: Optional[str] = Field(
+        default=None,
+        description="Model to use for fast execution (defaults to server configuration)"
+    )
     max_iterations: Optional[int] = Field(
         default=None,
         description="Maximum reasoning iterations (overrides default)",
@@ -79,3 +83,4 @@ class ModelsResponse(BaseModel):
 
     models: list[ModelInfo] = Field(description="List of available models")
     default: str = Field(description="Default model from configuration")
+    default_fast: str = Field(description="Default fast model from configuration")
