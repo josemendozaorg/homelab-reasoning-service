@@ -75,32 +75,59 @@
         <!-- Input Area -->
         <footer class="input-region">
             <form class="input-form" id="queryForm">
+
+                <!-- Control Bar (Models & Toggles) -->
+                <div class="control-bar">
+                    <div class="model-config-group">
+                        <!-- Smart Model (Planner) -->
+                        <div class="model-pill smart-theme" title="System 2: Planning & Evaluation">
+                            <div class="model-icon">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"></path>
+                                    <path d="M8.5 8.5a2.5 2.5 0 0 1 0 5"></path>
+                                    <path d="M15.5 15.5a2.5 2.5 0 0 1 0-5"></path>
+                                </svg>
+                            </div>
+                            <div class="select-wrapper">
+                                <label for="modelSelect">Planner</label>
+                                <select id="modelSelect" class="model-dropdown-clean">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Fast Model (Executor) -->
+                        <div class="model-pill fast-theme" title="System 1: Execution & Generation">
+                            <div class="model-icon">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                                </svg>
+                            </div>
+                            <div class="select-wrapper">
+                                <label for="fastModelSelect">Executor</label>
+                                <select id="fastModelSelect" class="model-dropdown-clean">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <label class="toggle-switch-compact" title="Toggle reasoning trace visibility">
+                        <input type="checkbox" id="showTrace" checked>
+                        <span class="toggle-track"></span>
+                        <span class="toggle-label">Trace</span>
+                    </label>
+                </div>
+
+                <!-- Input Text Area -->
                 <div class="input-wrapper">
-                    <textarea id="queryInput" placeholder="Ask a question..." rows="1" spellcheck="false"></textarea>
+                    <textarea id="queryInput" placeholder="Ask a complex question..." rows="1" spellcheck="false"></textarea>
                     <button type="submit" id="submitBtn" disabled aria-label="Send Message">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
                             <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" />
                         </svg>
                     </button>
-                </div>
-                <div class="input-options">
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="showTrace" checked>
-                        <span class="toggle-label">Show Reasoning Trace</span>
-                    </label>
-                    <div class="model-selector">
-                        <label for="modelSelect">Smart Model:</label>
-                        <select id="modelSelect" class="model-dropdown">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
-                    <div class="model-selector">
-                        <label for="fastModelSelect">Fast Model:</label>
-                        <select id="fastModelSelect" class="model-dropdown">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
                 </div>
             </form>
         </footer>
