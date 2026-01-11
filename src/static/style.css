@@ -425,6 +425,12 @@ body {
     outline: none;
 }
 
+/* Fix option visibility in dropdowns */
+.model-dropdown-clean option {
+    background: var(--nb-bg-secondary);
+    color: var(--nb-text-primary);
+}
+
 /* Compact Toggle */
 .toggle-switch-compact {
     display: flex;
