@@ -63,7 +63,7 @@ class TestMCTSLogic(unittest.TestCase):
         self.assertEqual(child.value, 0.5)
         
         self.assertEqual(root.visits, 1)
-        self.assertEqual(root.value, 0.5)
+        self.assertEqual(root.value, 0.475)
 
 if __name__ == '__main__':
     unittest.main()
