@@ -17,6 +17,11 @@ from typing import Optional, Literal
 import httpx
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
+# Try importing Exa
+try:
+    from exa_py import Exa
+except ImportError:
+    Exa = None
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 from langchain_core.runnables import RunnableConfig
 from langchain_core.callbacks import adispatch_custom_event
@@ -57,7 +62,8 @@ class WebSearchInput(BaseModel):
 # CACHING
 # =============================================================================
 
-_search_cache: dict[str, tuple[str, datetime]] = {}
+# Cache stores: (formatted_text, raw_results_list, timestamp)
+_search_cache: dict[str, tuple[str, list, datetime]] = {}
 _CACHE_TTL = timedelta(minutes=10)
 
 
@@ -66,30 +72,37 @@ def _get_cache_key(query: str, depth: str, provider: str) -> str:
     return hashlib.md5(f"{provider}:{query}:{depth}".encode()).hexdigest()
 
 
-def _get_cached_result(query: str, depth: str, provider: str) -> Optional[str]:
+def _get_cached_result(query: str, depth: str, provider: str) -> tuple[Optional[str], list]:
     """Get cached search result if valid."""
     key = _get_cache_key(query, depth, provider)
     if key in _search_cache:
-        result, timestamp = _search_cache[key]
+        # Handle backward compatibility if cache structure changed
+        val = _search_cache[key]
+        if len(val) == 2: # Old format
+            result, timestamp = val
+            results_list = []
+        else:
+            result, results_list, timestamp = val
+
         if datetime.now() - timestamp < _CACHE_TTL:
             logger.info(f"Cache hit for query: {query[:30]}...")
-            return result
+            return result, results_list
         else:
             # Expired - remove
             del _search_cache[key]
-    return None
+    return None, []
 
 
-def _cache_result(query: str, depth: str, provider: str, result: str) -> None:
+def _cache_result(query: str, depth: str, provider: str, result: str, results_list: list = None) -> None:
     """Cache a search result."""
     key = _get_cache_key(query, depth, provider)
-    _search_cache[key] = (result, datetime.now())
+    _search_cache[key] = (result, results_list or [], datetime.now())
 
     # Simple cache size limit
     if len(_search_cache) > 100:
-        # Remove oldest entries
+        # Remove oldest entries (check timestamp which is last element)
         oldest_keys = sorted(_search_cache.keys(),
-                            key=lambda k: _search_cache[k][1])[:20]
+                            key=lambda k: _search_cache[k][-1])[:20]
         for k in oldest_keys:
             del _search_cache[k]
 
@@ -335,9 +348,103 @@ async def search_google(query: str, max_results: int, api_key: str, cse_id: str)
     ]
 
 
+async def search_exa(query: str, max_results: int, api_key: str, depth: str = "snippets") -> str:
+    """Search using Exa (Metaphor) Neural Search."""
+    if not Exa:
+        raise ImportError("exa_py is not installed.")
+    if not api_key:
+        raise ValueError("Exa API Key is missing.")
+
+    # Exa 'contents' search is equivalent to deep scraping
+    use_contents = depth in ["selective", "deep"]
+    num_results = min(max_results, 10) # Exa standard limit
+
+    def run_exa():
+        exa = Exa(api_key=api_key)
+        # We search and get contents in one go if needed
+        if use_contents:
+            resp = exa.search_and_contents(
+                query,
+                type="auto", # auto uses neural or keyword
+                num_results=num_results,
+                highlights=True
+            )
+        else:
+            resp = exa.search(
+                query,
+                type="auto",
+                num_results=num_results
+            )
+        return resp
+
+    # Run sync call in thread
+    response = await asyncio.to_thread(run_exa)
+
+    formatted_results = []
+    formatted_results.append(f"=== Exa Neural Search Results ===\n")
+
+    for i, res in enumerate(response.results, 1):
+        title = getattr(res, "title", "No Title")
+        url = getattr(res, "url", "")
+        # Highlight is a list usually
+        highlights = getattr(res, "highlights", [])
+        highlight_text = " ".join(highlights) if highlights else ""
+
+        # If we asked for contents, 'text' might be available too
+        text = getattr(res, "text", "")
+
+        snippet = highlight_text if highlight_text else text[:500]
+
+        formatted_results.append(
+            f"[{i}] {title}\n"
+            f"    URL: {url}\n"
+            f"    Content: {snippet}\n"
+        )
+
+    return "\n".join(formatted_results)
+
+
 # =============================================================================
 # MAIN SEARCH FUNCTION (DISPATCHER)
 # =============================================================================
+
+def route_search_provider(query: str, api_keys: dict) -> str:
+    """Intelligently route search query to the best available provider."""
+    q = query.lower()
+
+    # Check availability
+    has_exa = bool(api_keys.get("exa") and Exa)
+    has_tavily = bool(api_keys.get("tavily"))
+    has_google = bool(api_keys.get("google"))
+    has_brave = bool(api_keys.get("brave"))
+
+    # 1. Semantic / Research / Tutorial -> Exa
+    semantic_triggers = [
+        "guide", "tutorial", "how to", "best way", "research", "paper",
+        "study", "history", "concept", "explanation", "list of", "companies",
+        "startups", "alternatives", "vs", "comparison"
+    ]
+    if has_exa and any(t in q for t in semantic_triggers):
+        return "exa"
+
+    # 2. News / Real-time / Finance -> Google or Tavily
+    news_triggers = [
+        "news", "latest", "price", "stock", "weather", "today", "yesterday",
+        "current", "event", "match", "score"
+    ]
+    if any(t in q for t in news_triggers):
+        if has_google: return "google"
+        if has_tavily: return "tavily"
+        # Fallback to DDG if neither
+
+    # 3. Default Generalist Hierarchy
+    if has_tavily: return "tavily"
+    if has_google: return "google"
+    if has_brave: return "brave"
+    if has_exa: return "exa" # Exa as fallback if it's the only one
+
+    return "ddg"
+
 
 async def perform_web_search(
     query: str,
@@ -357,19 +464,46 @@ async def perform_web_search(
     provider = configuration.get("search_provider", "ddg")
     api_key = configuration.get("search_api_key")
     cse_id = configuration.get("search_cse_id")
+    api_keys = configuration.get("search_api_keys", {})
+
+    # Auto-Routing
+    if provider == "auto":
+        original_provider = "auto"
+        provider = route_search_provider(query, api_keys)
+        logger.info(f"Router: '{query}' -> {provider}")
+
+        # Update key for the selected provider
+        if provider == "exa":
+            api_key = api_keys.get("exa")
+        elif provider == "tavily":
+            api_key = api_keys.get("tavily")
+        elif provider == "google":
+            api_key = api_keys.get("google")
+            # CSE ID should ideally be passed in map too, but for now use default or from env?
+            # We'll assume search_cse_id is set if google is used.
+        elif provider == "brave":
+            api_key = api_keys.get("brave")
 
     logger.info(f"Performing {depth} web search for: '{query}' using {provider}")
 
     # 2. Check Cache
-    cached = _get_cached_result(query, depth, provider)
-    if cached:
+    cached_text, cached_list = _get_cached_result(query, depth, provider)
+    if cached_text:
         if config:
+            # Emit full result even for cache so UI can render it
             await adispatch_custom_event(
                 "tool_io",
-                {"type": "cache_hit", "query": query, "provider": provider},
+                {
+                    "type": "search_result",
+                    "query": query,
+                    "count": len(cached_list),
+                    "provider": provider,
+                    "results": cached_list,
+                    "cached": True
+                },
                 config=config
             )
-        return cached
+        return cached_text
 
     # 3. Notify start
     if config:
@@ -391,7 +525,20 @@ async def perform_web_search(
                 # --- STRATEGY: TAVILY (Special Case: Handles scraping internally) ---
                 if provider == "tavily":
                     result = await search_tavily(query, max_results, api_key, depth)
-                    _cache_result(query, depth, provider, result)
+                    # Tavily result is just text string in this implementation,
+                    # we don't have the list unless we refactor search_tavily.
+                    # For now passing empty list or parsing it is hard.
+                    # Ideally search_tavily should return (str, list).
+                    # But for now let's just cache the text.
+                    _cache_result(query, depth, provider, result, [])
+                    return result
+
+                # --- STRATEGY: EXA (Special Case: Neural/Semantic) ---
+                if provider == "exa":
+                    result = await search_exa(query, max_results, api_key, depth)
+                    # Exa also returns formatted text in our implementation, but we could parse.
+                    # For consistency, we'll cache empty list for now unless we update search_exa to return list.
+                    _cache_result(query, depth, provider, result, [])
                     return result
 
                 # --- STRATEGY: OTHERS (Fetch Snippets -> Optional Scrape) ---
@@ -433,9 +580,15 @@ async def perform_web_search(
                     )
                 snippet_text = "\n".join(formatted_snippets)
 
+                # Prepare results list for cache (normalized)
+                cache_list = [
+                    {"title": r.get("title"), "url": r.get("href") or r.get("url")}
+                    for r in results[:5]
+                ]
+
                 # Return if snippets only
                 if depth == "snippets":
-                    _cache_result(query, depth, provider, snippet_text)
+                    _cache_result(query, depth, provider, snippet_text, cache_list)
                     return snippet_text
 
                 # Perform Scraping for Selective/Deep
@@ -443,7 +596,7 @@ async def perform_web_search(
                 scraped = await scrape_top_urls(results, query, max_urls=max_urls, config=config)
 
                 combined = f"=== Search Snippets ===\n{snippet_text}\n\n=== Detailed Content ===\n{scraped}"
-                _cache_result(query, depth, provider, combined)
+                _cache_result(query, depth, provider, combined, cache_list)
                 return combined
 
             except Exception as e:

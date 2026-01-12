@@ -75,7 +75,9 @@
                         <h3>Search Provider</h3>
                         <p class="settings-description">Select which service to use for web search.</p>
                         <select id="searchProvider" class="full-width-select">
+                            <option value="auto">Auto (Smart Router)</option>
                             <option value="ddg">DuckDuckGo (Free, no key)</option>
+                            <option value="exa">Exa (Semantic/Neural)</option>
                             <option value="tavily">Tavily (Best for Agents)</option>
                             <option value="google">Google Custom Search</option>
                             <option value="brave">Brave Search</option>
@@ -87,6 +89,13 @@
                         <label for="tavilyKey">API Key</label>
                         <input type="password" id="tavilyKey" placeholder="tvly-..." class="api-input">
                         <p class="settings-hint">Get a key at <a href="https://tavily.com" target="_blank">tavily.com</a></p>
+                    </div>
+
+                    <div id="exaConfig" class="settings-group hidden">
+                        <h3>Exa Configuration</h3>
+                        <label for="exaKey">API Key</label>
+                        <input type="password" id="exaKey" placeholder="exa-..." class="api-input">
+                        <p class="settings-hint">Get a key at <a href="https://exa.ai" target="_blank">exa.ai</a></p>
                     </div>
 
                     <div id="braveConfig" class="settings-group hidden">
@@ -176,7 +185,9 @@
                             <div class="select-wrapper">
                                 <label for="searchProviderPill">Search</label>
                                 <select id="searchProviderPill" class="model-dropdown-clean">
+                                    <option value="auto">Auto (Router)</option>
                                     <option value="ddg">DuckDuckGo</option>
+                                    <option value="exa">Exa</option>
                                     <option value="tavily">Tavily</option>
                                     <option value="google">Google</option>
                                     <option value="brave">Brave</option>

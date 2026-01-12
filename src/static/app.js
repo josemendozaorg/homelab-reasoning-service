@@ -18,10 +18,12 @@ const searchProviderSelect = document.getElementById('searchProvider');
 const searchProviderPill = document.getElementById('searchProviderPill'); // New pill dropdown
 
 const tavilyConfig = document.getElementById('tavilyConfig');
+const exaConfig = document.getElementById('exaConfig'); // New
 const braveConfig = document.getElementById('braveConfig');
 const googleConfig = document.getElementById('googleConfig');
 
 const tavilyKeyInput = document.getElementById('tavilyKey');
+const exaKeyInput = document.getElementById('exaKey'); // New
 const braveKeyInput = document.getElementById('braveKey');
 const googleKeyInput = document.getElementById('googleKey');
 const googleCseIdInput = document.getElementById('googleCseId');
@@ -261,6 +263,7 @@ marked.setOptions({
 function loadSettings() {
     const provider = localStorage.getItem('search_provider') || 'ddg';
     const tavilyKey = localStorage.getItem('search_api_key_tavily') || '';
+    const exaKey = localStorage.getItem('search_api_key_exa') || '';
     const braveKey = localStorage.getItem('search_api_key_brave') || '';
     const googleKey = localStorage.getItem('search_api_key_google') || '';
     const googleCse = localStorage.getItem('search_cse_id_google') || '';
@@ -270,6 +273,7 @@ function loadSettings() {
     searchProviderPill.value = provider;
 
     tavilyKeyInput.value = tavilyKey;
+    if (exaKeyInput) exaKeyInput.value = exaKey;
     braveKeyInput.value = braveKey;
     googleKeyInput.value = googleKey;
     googleCseIdInput.value = googleCse;
@@ -279,12 +283,18 @@ function loadSettings() {
 
 function updateSettingsUI(provider) {
     tavilyConfig.classList.add('hidden');
+    if (exaConfig) exaConfig.classList.add('hidden');
     braveConfig.classList.add('hidden');
     googleConfig.classList.add('hidden');
 
     if (provider === 'tavily') tavilyConfig.classList.remove('hidden');
+    if (provider === 'exa' && exaConfig) exaConfig.classList.remove('hidden');
     if (provider === 'brave') braveConfig.classList.remove('hidden');
     if (provider === 'google') googleConfig.classList.remove('hidden');
+
+    // Auto mode might need keys for underlying providers,
+    // but for simplicity we don't show all configs.
+    // Users should configure individual providers first.
 }
 
 // Handle Modal Dropdown Change
@@ -309,6 +319,7 @@ searchProviderPill.addEventListener('change', (e) => {
 function checkKeyAndPrompt(provider) {
     let missingKey = false;
     if (provider === 'tavily' && !localStorage.getItem('search_api_key_tavily')) missingKey = true;
+    if (provider === 'exa' && !localStorage.getItem('search_api_key_exa')) missingKey = true;
     if (provider === 'brave' && !localStorage.getItem('search_api_key_brave')) missingKey = true;
     if (provider === 'google' && (!localStorage.getItem('search_api_key_google') || !localStorage.getItem('search_cse_id_google'))) missingKey = true;
 
@@ -349,6 +360,7 @@ saveSettingsBtn.addEventListener('click', () => {
     localStorage.setItem('search_provider', provider);
 
     if (tavilyKeyInput.value) localStorage.setItem('search_api_key_tavily', tavilyKeyInput.value);
+    if (exaKeyInput && exaKeyInput.value) localStorage.setItem('search_api_key_exa', exaKeyInput.value);
     if (braveKeyInput.value) localStorage.setItem('search_api_key_brave', braveKeyInput.value);
     if (googleKeyInput.value) localStorage.setItem('search_api_key_google', googleKeyInput.value);
     if (googleCseIdInput.value) localStorage.setItem('search_cse_id_google', googleCseIdInput.value);
@@ -365,11 +377,24 @@ function getSearchConfig() {
     let cseId = null;
 
     if (provider === 'tavily') apiKey = localStorage.getItem('search_api_key_tavily');
+    if (provider === 'exa') apiKey = localStorage.getItem('search_api_key_exa');
     if (provider === 'brave') apiKey = localStorage.getItem('search_api_key_brave');
     if (provider === 'google') {
         apiKey = localStorage.getItem('search_api_key_google');
         cseId = localStorage.getItem('search_cse_id_google');
     }
+
+    // For Auto mode, we might want to send ALL keys?
+    // Currently the backend only accepts one 'search_api_key'.
+    // To support Auto mode fully, we should ideally send all keys.
+    // However, for MVP, we'll assume the backend can pick up keys from Environment Variables
+    // OR we need to update the request schema to support multiple keys.
+    //
+    // HACK: For 'auto', we will NOT send a specific key here, relying on Backend Env Vars
+    // OR the user must manually switch to the specific provider to set the key.
+    //
+    // Correction: We should allow sending a map of keys.
+    // But `ReasoningRequest` schema is strict.
 
     return { provider, apiKey, cseId };
 }
@@ -487,6 +512,13 @@ queryForm.addEventListener('submit', async (e) => {
     try {
         const searchConfig = getSearchConfig();
 
+        // Collect all available keys for the router
+        const apiKeys = {};
+        if (localStorage.getItem('search_api_key_tavily')) apiKeys['tavily'] = localStorage.getItem('search_api_key_tavily');
+        if (localStorage.getItem('search_api_key_exa')) apiKeys['exa'] = localStorage.getItem('search_api_key_exa');
+        if (localStorage.getItem('search_api_key_brave')) apiKeys['brave'] = localStorage.getItem('search_api_key_brave');
+        if (localStorage.getItem('search_api_key_google')) apiKeys['google'] = localStorage.getItem('search_api_key_google');
+
         const response = await fetchWithRetry('/v1/reason/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -498,7 +530,8 @@ queryForm.addEventListener('submit', async (e) => {
                 history: chatHistory,
                 search_provider: searchConfig.provider,
                 search_api_key: searchConfig.apiKey,
-                search_cse_id: searchConfig.cseId
+                search_cse_id: searchConfig.cseId,
+                search_api_keys: apiKeys
             }),
             signal: signal
         });
@@ -536,9 +569,14 @@ queryForm.addEventListener('submit', async (e) => {
                         else if (currentEvent === 'tool_io') {
                             try {
                                 const toolData = JSON.parse(currentData);
+                                console.log("[app.js] tool_io event:", toolData);
+
                                 if (toolData.type === 'search_result') {
                                     // Make Sources Panel Visible
                                     sourcesPanel.classList.remove('hidden');
+                                    if (sourcesContent.parentNode.classList.contains('hidden')) {
+                                        sourcesContent.parentNode.classList.remove('hidden');
+                                    }
 
                                     // Create Search Card
                                     const card = document.createElement('div');

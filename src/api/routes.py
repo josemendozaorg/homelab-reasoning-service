@@ -172,7 +172,8 @@ async def reason_stream(request: ReasoningRequest, req: Request):
                         "fast_model": fast_model,
                         "search_provider": request.search_provider,
                         "search_api_key": request.search_api_key,
-                        "search_cse_id": request.search_cse_id
+                        "search_cse_id": request.search_cse_id,
+                        "search_api_keys": request.search_api_keys or {}
                     }
                 }
                 async for event in graph.astream_events(initial_state, version="v2", config=config):

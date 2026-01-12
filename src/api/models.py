@@ -47,6 +47,10 @@ class ReasoningRequest(BaseModel):
         default=None,
         description="Custom Search Engine ID (required for Google)"
     )
+    search_api_keys: Optional[dict[str, str]] = Field(
+        default={},
+        description="Dictionary of API keys for specific providers (e.g. {'exa': '...', 'tavily': '...'})"
+    )
 
 
 class ReasoningResponse(BaseModel):
