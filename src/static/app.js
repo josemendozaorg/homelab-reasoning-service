@@ -8,6 +8,27 @@ const appVersion = document.getElementById('appVersion');
 const modelSelect = document.getElementById('modelSelect');
 const fastModelSelect = document.getElementById('fastModelSelect');
 
+// Settings Elements
+const settingsBtn = document.getElementById('settingsBtn');
+const quickSettingsBtn = document.getElementById('quickSettingsBtn'); // New button inside pill
+const settingsModal = document.getElementById('settingsModal');
+const closeSettings = document.getElementById('closeSettings');
+const saveSettingsBtn = document.getElementById('saveSettings');
+const searchProviderSelect = document.getElementById('searchProvider');
+const searchProviderPill = document.getElementById('searchProviderPill'); // New pill dropdown
+
+const tavilyConfig = document.getElementById('tavilyConfig');
+const exaConfig = document.getElementById('exaConfig'); // New
+const braveConfig = document.getElementById('braveConfig');
+const googleConfig = document.getElementById('googleConfig');
+
+const tavilyKeyInput = document.getElementById('tavilyKey');
+const exaKeyInput = document.getElementById('exaKey'); // New
+const braveKeyInput = document.getElementById('braveKey');
+const googleKeyInput = document.getElementById('googleKey');
+const googleCseIdInput = document.getElementById('googleCseId');
+
+
 let chatHistory = []; // Local history state
 let selectedModel = localStorage.getItem('selectedModel') || null;
 let selectedFastModel = localStorage.getItem('selectedFastModel') || null;
@@ -161,6 +182,7 @@ function createMessageElement(role, content = '') {
         // Assistant Message Structure:
         // 1. Trace Wrapper (Thinking)
         // 2. Message Bubble (Final Answer)
+        // 3. Sources Panel (Hidden initially)
 
         // 1. Trace Wrapper
         const traceWrapper = document.createElement('div');
@@ -183,12 +205,41 @@ function createMessageElement(role, content = '') {
         const bubble = document.createElement('div');
         bubble.className = 'message-bubble prose hidden';
         msgDiv.appendChild(bubble);
+
+        // 3. Sources Panel
+        const sourcesPanel = document.createElement('div');
+        sourcesPanel.className = 'sources-panel hidden';
+        sourcesPanel.innerHTML = `
+            <div class="sources-header" onclick="toggleSources(this)">
+                <div class="sources-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <span>Sources & Search Data</span>
+                </div>
+                <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 9l6 6 6-6" />
+                </svg>
+            </div>
+            <div class="sources-content"></div>
+        `;
+        msgDiv.appendChild(sourcesPanel);
     }
     return msgDiv;
 }
 
 // Global scope for onclick handler in HTML string
 window.toggleTrace = function (headerElement) {
+    const content = headerElement.nextElementSibling;
+    const chevron = headerElement.querySelector('.chevron');
+
+    headerElement.classList.toggle('expanded');
+    content.classList.toggle('expanded');
+    chevron.classList.toggle('rotate-180');
+};
+
+window.toggleSources = function (headerElement) {
     const content = headerElement.nextElementSibling;
     const chevron = headerElement.querySelector('.chevron');
 
@@ -204,6 +255,153 @@ marked.setOptions({
         return code;
     }
 });
+
+// =============================================================================
+// SETTINGS LOGIC
+// =============================================================================
+
+function loadSettings() {
+    const provider = localStorage.getItem('search_provider') || 'ddg';
+    const tavilyKey = localStorage.getItem('search_api_key_tavily') || '';
+    const exaKey = localStorage.getItem('search_api_key_exa') || '';
+    const braveKey = localStorage.getItem('search_api_key_brave') || '';
+    const googleKey = localStorage.getItem('search_api_key_google') || '';
+    const googleCse = localStorage.getItem('search_cse_id_google') || '';
+
+    // Sync both dropdowns
+    searchProviderSelect.value = provider;
+    searchProviderPill.value = provider;
+
+    tavilyKeyInput.value = tavilyKey;
+    if (exaKeyInput) exaKeyInput.value = exaKey;
+    braveKeyInput.value = braveKey;
+    googleKeyInput.value = googleKey;
+    googleCseIdInput.value = googleCse;
+
+    updateSettingsUI(provider);
+}
+
+function updateSettingsUI(provider) {
+    tavilyConfig.classList.add('hidden');
+    if (exaConfig) exaConfig.classList.add('hidden');
+    braveConfig.classList.add('hidden');
+    googleConfig.classList.add('hidden');
+
+    if (provider === 'tavily') tavilyConfig.classList.remove('hidden');
+    if (provider === 'exa' && exaConfig) exaConfig.classList.remove('hidden');
+    if (provider === 'brave') braveConfig.classList.remove('hidden');
+    if (provider === 'google') googleConfig.classList.remove('hidden');
+
+    // Auto mode might need keys for underlying providers,
+    // but for simplicity we don't show all configs.
+    // Users should configure individual providers first.
+}
+
+// Handle Modal Dropdown Change
+searchProviderSelect.addEventListener('change', (e) => {
+    const provider = e.target.value;
+    updateSettingsUI(provider);
+    searchProviderPill.value = provider; // Sync Pill
+    localStorage.setItem('search_provider', provider); // Auto-save selection
+});
+
+// Handle Pill Dropdown Change
+searchProviderPill.addEventListener('change', (e) => {
+    const provider = e.target.value;
+    searchProviderSelect.value = provider; // Sync Modal
+    updateSettingsUI(provider);
+    localStorage.setItem('search_provider', provider); // Auto-save selection
+
+    // Auto-prompt for key if missing
+    checkKeyAndPrompt(provider);
+});
+
+function checkKeyAndPrompt(provider) {
+    let missingKey = false;
+    if (provider === 'tavily' && !localStorage.getItem('search_api_key_tavily')) missingKey = true;
+    if (provider === 'exa' && !localStorage.getItem('search_api_key_exa')) missingKey = true;
+    if (provider === 'brave' && !localStorage.getItem('search_api_key_brave')) missingKey = true;
+    if (provider === 'google' && (!localStorage.getItem('search_api_key_google') || !localStorage.getItem('search_cse_id_google'))) missingKey = true;
+
+    if (missingKey) {
+        // Open modal to prompt user
+        loadSettings(); // Refresh fields
+        settingsModal.classList.remove('hidden');
+        // Maybe highlight the specific section?
+    }
+}
+
+// Open Modal Buttons
+settingsBtn.addEventListener('click', () => {
+    loadSettings();
+    settingsModal.classList.remove('hidden');
+});
+
+if (quickSettingsBtn) {
+    quickSettingsBtn.addEventListener('click', () => {
+        loadSettings();
+        settingsModal.classList.remove('hidden');
+    });
+}
+
+closeSettings.addEventListener('click', () => {
+    settingsModal.classList.add('hidden');
+});
+
+// Close on backdrop click
+settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+        settingsModal.classList.add('hidden');
+    }
+});
+
+saveSettingsBtn.addEventListener('click', () => {
+    const provider = searchProviderSelect.value;
+    localStorage.setItem('search_provider', provider);
+
+    if (tavilyKeyInput.value) localStorage.setItem('search_api_key_tavily', tavilyKeyInput.value);
+    if (exaKeyInput && exaKeyInput.value) localStorage.setItem('search_api_key_exa', exaKeyInput.value);
+    if (braveKeyInput.value) localStorage.setItem('search_api_key_brave', braveKeyInput.value);
+    if (googleKeyInput.value) localStorage.setItem('search_api_key_google', googleKeyInput.value);
+    if (googleCseIdInput.value) localStorage.setItem('search_cse_id_google', googleCseIdInput.value);
+
+    // Sync pill again just in case
+    searchProviderPill.value = provider;
+
+    settingsModal.classList.add('hidden');
+});
+
+function getSearchConfig() {
+    const provider = localStorage.getItem('search_provider') || 'ddg';
+    let apiKey = null;
+    let cseId = null;
+
+    if (provider === 'tavily') apiKey = localStorage.getItem('search_api_key_tavily');
+    if (provider === 'exa') apiKey = localStorage.getItem('search_api_key_exa');
+    if (provider === 'brave') apiKey = localStorage.getItem('search_api_key_brave');
+    if (provider === 'google') {
+        apiKey = localStorage.getItem('search_api_key_google');
+        cseId = localStorage.getItem('search_cse_id_google');
+    }
+
+    // For Auto mode, we might want to send ALL keys?
+    // Currently the backend only accepts one 'search_api_key'.
+    // To support Auto mode fully, we should ideally send all keys.
+    // However, for MVP, we'll assume the backend can pick up keys from Environment Variables
+    // OR we need to update the request schema to support multiple keys.
+    //
+    // HACK: For 'auto', we will NOT send a specific key here, relying on Backend Env Vars
+    // OR the user must manually switch to the specific provider to set the key.
+    //
+    // Correction: We should allow sending a map of keys.
+    // But `ReasoningRequest` schema is strict.
+
+    return { provider, apiKey, cseId };
+}
+
+// Initial Load
+loadSettings();
+
 
 // Submit handler
 queryForm.addEventListener('submit', async (e) => {
@@ -256,6 +454,8 @@ queryForm.addEventListener('submit', async (e) => {
     const traceWrapper = assistantMsg.querySelector('.trace-wrapper');
     const traceContent = assistantMsg.querySelector('.trace-content');
     const answerBubble = assistantMsg.querySelector('.message-bubble');
+    const sourcesPanel = assistantMsg.querySelector('.sources-panel'); // New
+    const sourcesContent = assistantMsg.querySelector('.sources-content'); // New
     const pulse = assistantMsg.querySelector('.thinking-pulse');
 
     // Helper: Mark trace as finished
@@ -310,6 +510,15 @@ queryForm.addEventListener('submit', async (e) => {
     let currentData = null;
 
     try {
+        const searchConfig = getSearchConfig();
+
+        // Collect all available keys for the router
+        const apiKeys = {};
+        if (localStorage.getItem('search_api_key_tavily')) apiKeys['tavily'] = localStorage.getItem('search_api_key_tavily');
+        if (localStorage.getItem('search_api_key_exa')) apiKeys['exa'] = localStorage.getItem('search_api_key_exa');
+        if (localStorage.getItem('search_api_key_brave')) apiKeys['brave'] = localStorage.getItem('search_api_key_brave');
+        if (localStorage.getItem('search_api_key_google')) apiKeys['google'] = localStorage.getItem('search_api_key_google');
+
         const response = await fetchWithRetry('/v1/reason/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -318,7 +527,11 @@ queryForm.addEventListener('submit', async (e) => {
                 model: selectedModel,
                 fast_model: selectedFastModel, // Send fast model
                 max_iterations: 5,
-                history: chatHistory
+                history: chatHistory,
+                search_provider: searchConfig.provider,
+                search_api_key: searchConfig.apiKey,
+                search_cse_id: searchConfig.cseId,
+                search_api_keys: apiKeys
             }),
             signal: signal
         });
@@ -344,19 +557,7 @@ queryForm.addEventListener('submit', async (e) => {
 
                         // 1. Handle Done Signal
                         if (currentEvent === 'done') {
-                            // Break the outer loop handled by flag or just break here if careful
-                            // Ideally set a flag to break outer loop
-                            // For now, we rely on the loop finishing naturally, but if 'done' implies immediate stop:
-                            // We can use a label or verify done logic
-                            // Actually, let's just break the stream loop
-                            // Note: breaking the inner 'lines' loop isn't enough. We need to break "while (true)"
-                            // We'll throw an exception or set a flag?
-                            // Easiest is to set reader cancelled?
-                            // Let's just break; this breaks 'for lines', but we need to break 'while'.
-                            // Let's use a flag.
-                            // Wait, 'done' event means stream is finished from server side logic perspective,
-                            // but the HTTP stream might close shortly after.
-                            // Let's handle it gracefully.
+                            // ...
                         }
 
                         // 2. Handle Ping (keep-alive)
@@ -365,7 +566,48 @@ queryForm.addEventListener('submit', async (e) => {
                         }
 
                         // 3. Handle Token Streaming
-                        // The backend sends `yield {"data": ...}` which usually defaults to message event.
+                        else if (currentEvent === 'tool_io') {
+                            try {
+                                const toolData = JSON.parse(currentData);
+                                console.log("[app.js] tool_io event:", toolData);
+
+                                if (toolData.type === 'search_result') {
+                                    // Make Sources Panel Visible
+                                    sourcesPanel.classList.remove('hidden');
+                                    if (sourcesContent.parentNode.classList.contains('hidden')) {
+                                        sourcesContent.parentNode.classList.remove('hidden');
+                                    }
+
+                                    // Create Search Card
+                                    const card = document.createElement('div');
+                                    card.className = 'search-card';
+
+                                    const provider = toolData.provider || 'unknown';
+                                    const query = toolData.query || 'Unknown Query';
+                                    const count = toolData.count || 0;
+                                    const results = toolData.results || [];
+
+                                    let resultsHtml = '';
+                                    results.forEach(res => {
+                                        resultsHtml += `<li class="search-result-item"><a href="${res.url}" target="_blank" title="${res.title}">${res.title}</a></li>`;
+                                    });
+
+                                    card.innerHTML = `
+                                        <div class="search-card-header">
+                                            <span class="provider-badge ${provider}">${provider}</span>
+                                            <span style="font-size: 0.7rem; color: #71717a;">${count} results</span>
+                                        </div>
+                                        <div class="search-query">"${query}"</div>
+                                        <ul class="search-results-list">
+                                            ${resultsHtml}
+                                        </ul>
+                                    `;
+
+                                    sourcesContent.appendChild(card);
+                                }
+                            } catch (e) { console.warn("Tool IO Parse Error:", e); }
+                        }
+
                         else {
                             try {
                                 const data = JSON.parse(currentData);
