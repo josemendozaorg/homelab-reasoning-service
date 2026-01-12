@@ -50,12 +50,75 @@
             </div>
 
             <div class="header-controls">
+                <button id="settingsBtn" class="icon-button" title="Settings" aria-label="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
                 <div class="status-badge" title="Service Status">
                     <span class="status-dot"></span>
                     <span>Online</span>
                 </div>
             </div>
         </header>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal-backdrop hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Settings</h2>
+                    <button id="closeSettings" class="close-button">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-group">
+                        <h3>Search Provider</h3>
+                        <p class="settings-description">Select which service to use for web search.</p>
+                        <select id="searchProvider" class="full-width-select">
+                            <option value="auto">Auto (Smart Router)</option>
+                            <option value="ddg">DuckDuckGo (Free, no key)</option>
+                            <option value="exa">Exa (Semantic/Neural)</option>
+                            <option value="tavily">Tavily (Best for Agents)</option>
+                            <option value="google">Google Custom Search</option>
+                            <option value="brave">Brave Search</option>
+                        </select>
+                    </div>
+
+                    <div id="tavilyConfig" class="settings-group hidden">
+                        <h3>Tavily Configuration</h3>
+                        <label for="tavilyKey">API Key</label>
+                        <input type="password" id="tavilyKey" placeholder="tvly-..." class="api-input">
+                        <p class="settings-hint">Get a key at <a href="https://tavily.com" target="_blank">tavily.com</a></p>
+                    </div>
+
+                    <div id="exaConfig" class="settings-group hidden">
+                        <h3>Exa Configuration</h3>
+                        <label for="exaKey">API Key</label>
+                        <input type="password" id="exaKey" placeholder="exa-..." class="api-input">
+                        <p class="settings-hint">Get a key at <a href="https://exa.ai" target="_blank">exa.ai</a></p>
+                    </div>
+
+                    <div id="braveConfig" class="settings-group hidden">
+                        <h3>Brave Configuration</h3>
+                        <label for="braveKey">API Key</label>
+                        <input type="password" id="braveKey" placeholder="BSA..." class="api-input">
+                        <p class="settings-hint">Get a key at <a href="https://brave.com/search/api/" target="_blank">brave.com</a></p>
+                    </div>
+
+                    <div id="googleConfig" class="settings-group hidden">
+                        <h3>Google Configuration</h3>
+                        <label for="googleKey">API Key</label>
+                        <input type="password" id="googleKey" placeholder="AIza..." class="api-input">
+                        <label for="googleCseId" style="margin-top: 10px;">CSE ID</label>
+                        <input type="text" id="googleCseId" placeholder="0123456789..." class="api-input">
+                        <p class="settings-hint">Get keys at <a href="https://developers.google.com/custom-search/v1/overview" target="_blank">Google Developers</a></p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="saveSettings" class="primary-button">Save</button>
+                </div>
+            </div>
+        </div>
 
         <!-- Main Chat Area -->
         <main class="chat-viewport">
@@ -109,6 +172,33 @@
                                     <option value="">Loading...</option>
                                 </select>
                             </div>
+                        </div>
+
+                        <!-- Search Provider Pill -->
+                        <div class="model-pill search-theme" title="Web Search Provider">
+                            <div class="model-icon">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                </svg>
+                            </div>
+                            <div class="select-wrapper">
+                                <label for="searchProviderPill">Search</label>
+                                <select id="searchProviderPill" class="model-dropdown-clean">
+                                    <option value="auto">Auto (Router)</option>
+                                    <option value="ddg">DuckDuckGo</option>
+                                    <option value="exa">Exa</option>
+                                    <option value="tavily">Tavily</option>
+                                    <option value="google">Google</option>
+                                    <option value="brave">Brave</option>
+                                </select>
+                            </div>
+                            <button id="quickSettingsBtn" class="pill-action-btn" title="Configure API Keys" type="button">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                </svg>
+                            </button>
                         </div>
                     </div>
 
