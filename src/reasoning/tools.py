@@ -108,6 +108,49 @@ def _cache_result(query: str, depth: str, provider: str, result: str, results_li
 
 
 # =============================================================================
+# SOURCE QUALITY SCORING
+# =============================================================================
+
+TRUSTED_DOMAINS = {
+    "wikipedia.org": 1.0,
+    ".gov": 0.95,
+    ".edu": 0.9,
+    "reuters.com": 0.9,
+    "bbc.com": 0.9,
+    "nature.com": 0.95,
+    "arxiv.org": 0.9,
+    "github.com": 0.85,
+    "stackoverflow.com": 0.85,
+    "medium.com": 0.6,
+    "reddit.com": 0.5,
+}
+
+
+def score_source_quality(url: str) -> float:
+    """Score source reliability based on domain."""
+    url_lower = url.lower()
+    for domain, score in TRUSTED_DOMAINS.items():
+        if domain in url_lower:
+            return score
+    return 0.5  # Unknown source
+
+
+def score_snippet_relevance(snippet: str, query: str) -> float:
+    """Score how relevant a snippet is to the query."""
+    if not snippet or not query:
+        return 0.0
+
+    query_terms = set(query.lower().split())
+    snippet_lower = snippet.lower()
+
+    # Count matching terms
+    matches = sum(1 for term in query_terms if term in snippet_lower)
+    relevance = matches / len(query_terms) if query_terms else 0.0
+
+    return min(1.0, relevance)
+
+
+# =============================================================================
 # HTML PROCESSING & SCRAPING
 # =============================================================================
 

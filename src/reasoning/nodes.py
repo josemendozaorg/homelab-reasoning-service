@@ -355,7 +355,12 @@ async def tool_node(state: ReasoningState, config: RunnableConfig) -> dict[str, 
     results = await perform_web_search(query, depth=depth, config=config)
 
     # Emit tokens for UI visibility
-    formatted_results = f"[Search Results (depth={depth})]\n{results}\n"
+    # Truncate detailed content for the UI trace to avoid clutter
+    ui_results = results
+    if "=== Detailed Content ===" in results:
+        ui_results = results.split("=== Detailed Content ===")[0] + "\n[Detailed content captured for reasoning...]"
+
+    formatted_results = f"[Search Results (depth={depth})]\n{ui_results}\n"
     await adispatch_custom_event(
         "token",
         {"token": formatted_results, "node": "tool"},
@@ -1384,6 +1389,21 @@ async def mcts_finalize_node(state: ReasoningState, config: RunnableConfig) -> d
         reflection_summary = f"\n[Reflection: {best_leaf.reflection[:200]}...]"
 
     logger.info(f"MCTS Complete. Final answer from {best_leaf.id} (score: {best_leaf.value:.2f})")
+
+    # STREAMING FIX: Explicitly stream the final answer to the frontend
+    # This ensures the 'mcts_final' node populates the answer bubble in app.js
+    if answer:
+        # Stream the answer in chunks
+        chunk_size = 20
+        for i in range(0, len(answer), chunk_size):
+            chunk = answer[i:i+chunk_size]
+            await adispatch_custom_event(
+                "token",
+                {"token": chunk, "node": "mcts_final"},
+                config=config
+            )
+            # Tiny sleep to ensure order and prevent event flooding
+            await asyncio.sleep(0.001)
 
     return {
         "is_complete": True,
